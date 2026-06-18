@@ -26,6 +26,10 @@ const EnvSchema = z.object({
   TURN_URL: z.string().optional(),
   TURN_USERNAME: z.string().optional(),
   TURN_CREDENTIAL: z.string().optional(),
+  // A URL that returns a ready-to-use iceServers JSON array (e.g. Metered's
+  // `/api/v1/turn/credentials?apiKey=...`). Fetched server-side and cached so
+  // the API key never reaches the browser and creds rotate automatically.
+  TURN_API_URL: z.string().url().optional(),
 });
 
 const parsed = EnvSchema.parse(process.env);
@@ -43,6 +47,8 @@ export interface ServerConfig {
     username: string;
     credential: string;
   };
+  /** Optional URL that returns an iceServers JSON array (e.g. Metered). */
+  turnApiUrl?: string;
 }
 
 const turn =
@@ -62,4 +68,5 @@ export const config: ServerConfig = {
   corsOrigins: csv(parsed.CORS_ORIGINS),
   stunUrls: csv(parsed.STUN_URLS),
   ...(turn ? { turn } : {}),
+  ...(parsed.TURN_API_URL ? { turnApiUrl: parsed.TURN_API_URL } : {}),
 };
