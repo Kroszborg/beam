@@ -64,7 +64,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // The encryption key never reaches here — clients fetch ICE config only.
   app.get('/ice', async () => buildIceConfig());
 
-  app.get('/ws', { websocket: true }, (socket) => {
+  // Reject WebSocket upgrades from disallowed browser origins. Browsers always
+  // send an Origin header on WS, so this stops other websites from abusing the
+  // signaling server. Non-browser clients (no Origin) are allowed through.
+  const originAllowed = (origin?: string): boolean => {
+    if (!origin) return true;
+    if (config.corsOrigins.length === 0) return true;
+    return config.corsOrigins.includes(origin);
+  };
+
+  app.get('/ws', { websocket: true }, (socket, req) => {
+    if (!originAllowed(req.headers.origin)) {
+      socket.close(1008, 'origin not allowed');
+      return;
+    }
     hub.handleConnection(socket);
   });
 

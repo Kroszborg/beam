@@ -99,6 +99,18 @@ export class ResumeStore {
     return new Set(keys.map((k) => k[1]));
   }
 
+  /** Fetch a single chunk's bytes (used to stream a file out chunk-by-chunk). */
+  async getChunk(transferId: string, chunkIndex: number): Promise<ArrayBuffer | null> {
+    const db = await this.open();
+    const tx = db.transaction(CHUNK_STORE, 'readonly');
+    const row = await promisify(
+      tx.objectStore(CHUNK_STORE).get([transferId, chunkIndex]) as IDBRequest<
+        StoredChunk | undefined
+      >,
+    );
+    return row ? row.data : null;
+  }
+
   /** All chunks for one file, ordered by byte offset (for assembly). */
   async getChunksForFile(
     transferId: string,
@@ -127,6 +139,34 @@ export class ResumeStore {
     );
     const store = tx.objectStore(CHUNK_STORE);
     for (const key of keys) store.delete(key);
+    await txDone(tx);
+  }
+
+  /**
+   * Garbage-collect every transfer except the one we're currently receiving.
+   * Called when a new transfer's manifest arrives, so chunks from abandoned
+   * past transfers don't accumulate forever in the browser.
+   */
+  async clearOthers(keepTransferId: string): Promise<void> {
+    const db = await this.open();
+    const tx = db.transaction([CHUNK_STORE, MANIFEST_STORE], 'readwrite');
+    const chunks = tx.objectStore(CHUNK_STORE);
+
+    const chunkKeys = await promisify(
+      chunks.getAllKeys() as unknown as IDBRequest<[string, number][]>,
+    );
+    for (const key of chunkKeys) {
+      if (key[0] !== keepTransferId) chunks.delete(key);
+    }
+
+    const manifests = tx.objectStore(MANIFEST_STORE);
+    const manifestKeys = await promisify(
+      manifests.getAllKeys() as unknown as IDBRequest<string[]>,
+    );
+    for (const key of manifestKeys) {
+      if (key !== keepTransferId) manifests.delete(key);
+    }
+
     await txDone(tx);
   }
 }

@@ -15,7 +15,6 @@
   "dependencies": {
     "@beam/shared": "workspace:*",
     "@radix-ui/react-slot": "^1.1.1",
-    "@react-three/fiber": "^9.6.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^11.15.0",
@@ -26,8 +25,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1",
-    "tailwind-merge": "^2.6.0",
-    "three": "^0.184.0"
+    "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
@@ -35,7 +33,6 @@
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
-    "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^4.3.4",
     "fake-indexeddb": "^6.0.0",
     "tailwindcss": "^4.0.0",

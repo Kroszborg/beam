@@ -49,7 +49,14 @@ interface PeerConnection {
   peerId: string;
   socket: WebSocket;
   roomId: string | null;
+  /** Sliding-window message counter for rate limiting. */
+  windowStart: number;
+  msgCount: number;
 }
+
+/** Generous cap: legitimate ICE trickle bursts, but spam gets cut off. */
+const RATE_WINDOW_MS = 10_000;
+const RATE_MAX_MESSAGES = 300;
 
 export class SignalingHub {
   private readonly rooms: RoomStore;
@@ -77,6 +84,8 @@ export class SignalingHub {
       peerId: makePeerId(),
       socket,
       roomId: null,
+      windowStart: Date.now(),
+      msgCount: 0,
     };
 
     socket.on('message', (raw: Buffer) => {
@@ -90,12 +99,29 @@ export class SignalingHub {
     });
   }
 
+  /** Sliding-window per-connection rate limit. Returns true if over budget. */
+  private isRateLimited(peer: PeerConnection): boolean {
+    const now = Date.now();
+    if (now - peer.windowStart > RATE_WINDOW_MS) {
+      peer.windowStart = now;
+      peer.msgCount = 0;
+    }
+    peer.msgCount += 1;
+    return peer.msgCount > RATE_MAX_MESSAGES;
+  }
+
   // ── Client → hub ────────────────────────────────────────────
 
   private async onClientMessage(
     peer: PeerConnection,
     raw: Buffer,
   ): Promise<void> {
+    if (this.isRateLimited(peer)) {
+      this.sendError(peer, 'internal-error', 'Rate limit exceeded.');
+      peer.socket.close(1008, 'rate limit');
+      return;
+    }
+
     let msg: ClientToServerMessage;
     try {
       msg = JSON.parse(raw.toString()) as ClientToServerMessage;

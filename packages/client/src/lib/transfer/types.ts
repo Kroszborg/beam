@@ -38,11 +38,13 @@ export interface TransferProgress {
   etaSeconds: number | null;
 }
 
-/** A reassembled output file ready for the user to save. */
+/** A received file ready for the user to save (streamed from IndexedDB). */
 export interface CompletedFile {
   name: string;
   size: number;
   type: string;
-  /** Object URL for download. Revoke when done. */
-  url: string;
+  /** Read the whole file's bytes (for integrity checks / tests). */
+  getBytes: () => Promise<Uint8Array>;
+  /** Save to disk — streams via the File System Access API where available. */
+  save: () => Promise<void>;
 }

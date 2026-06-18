@@ -26,6 +26,9 @@ type ReceiverSessionEvents = {
   error: string;
 };
 
+/** How long to wait for the peer connection before surfacing an error. */
+const CONNECT_TIMEOUT_MS = 30_000;
+
 export class ReceiverSession {
   private readonly emitter = new Emitter<ReceiverSessionEvents>();
   private signaling: SignalingClient | null = null;
@@ -34,6 +37,8 @@ export class ReceiverSession {
   private iceServers: RTCIceServer[] = [];
   private roomId: string | null = null;
   private done = false;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
+  private channelOpened = false;
 
   readonly on = this.emitter.on.bind(this.emitter);
 
@@ -77,6 +82,17 @@ export class ReceiverSession {
     this.emitter.emit('state', 'connecting');
     this.createPeer();
 
+    // If the channel never opens, surface a clear error rather than spinning.
+    this.connectTimer = setTimeout(() => {
+      if (!this.channelOpened && !this.done) {
+        this.emitter.emit(
+          'error',
+          "Couldn't connect to the sender. They may be on a restrictive network, or have closed the tab — ask them to reopen and try again.",
+        );
+        this.emitter.emit('state', 'error');
+      }
+    }, CONNECT_TIMEOUT_MS);
+
     // If the sender drops and returns, be ready to answer its fresh offer.
     this.signaling.on('peer-left', () => {
       if (!this.done) this.createPeer();
@@ -88,13 +104,18 @@ export class ReceiverSession {
     this.pc?.close();
     const pc = new PeerConnection('receiver', this.roomId, this.signaling, this.iceServers);
     this.pc = pc;
-    pc.on('channel-open', (transport) => this.receiver!.attach(transport));
+    pc.on('channel-open', (transport) => {
+      this.channelOpened = true;
+      if (this.connectTimer) clearTimeout(this.connectTimer);
+      this.receiver!.attach(transport);
+    });
     pc.on('failed', () => {
       if (!this.done) setTimeout(() => this.createPeer(), 500);
     });
   }
 
   close(): void {
+    if (this.connectTimer) clearTimeout(this.connectTimer);
     this.pc?.close();
     this.signaling?.close();
     this.emitter.clear();

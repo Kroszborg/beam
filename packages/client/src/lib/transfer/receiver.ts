@@ -20,7 +20,7 @@ import { computeMerkleRoot } from './merkle.js';
 import { ResumeStore } from './resumeStore.js';
 import { ProgressTracker } from './progress.js';
 import { computeMissingChunks, isComplete } from './bitmap.js';
-import { assembleFiles } from './assemble.js';
+import { buildReceivedFiles } from './fileSink.js';
 import type { CompletedFile, ReceiverState, TransferProgress } from './types.js';
 
 export interface FileReceiverCallbacks {
@@ -86,6 +86,8 @@ export class FileReceiver {
     }
 
     await this.store.saveManifest(manifest.transferId, manifest);
+    // Garbage-collect chunks from any earlier, abandoned transfers.
+    await this.store.clearOthers(manifest.transferId);
 
     // Resume: discover what we already persisted from a prior session.
     this.received = await this.store.getReceivedIndices(manifest.transferId);
@@ -168,8 +170,9 @@ export class FileReceiver {
       JSON.stringify({ type: 'transfer-complete', transferId: this.manifest.transferId }),
     );
 
-    const files = await assembleFiles(this.store, this.manifest);
-    await this.store.clearTransfer(this.manifest.transferId);
+    // Keep the chunks in IndexedDB so the user can save (stream) them on click;
+    // clearOthers() on the next transfer garbage-collects them later.
+    const files = buildReceivedFiles(this.store, this.manifest);
 
     this.callbacks.onState?.('complete');
     this.callbacks.onComplete?.(files);

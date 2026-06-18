@@ -83,14 +83,12 @@ export function ReceivePage() {
                     {files.map((f) => (
                       <li
                         key={f.name}
-                        className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2.5"
+                        className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5"
                       >
                         <span className="flex-1 truncate text-sm text-[var(--color-ink)]">{f.name}</span>
-                        <span className="text-xs text-[var(--color-ink-subtle)]">{formatBytes(f.size)}</span>
-                        <Button asChild size="sm">
-                          <a href={f.url} download={f.name}>
-                            <Download className="h-4 w-4" /> Save
-                          </a>
+                        <span className="text-xs text-[var(--color-ink-faint)]">{formatBytes(f.size)}</span>
+                        <Button size="sm" onClick={() => void f.save()}>
+                          <Download className="h-4 w-4" /> Save
                         </Button>
                       </li>
                     ))}
@@ -116,6 +114,15 @@ export function ReceivePage() {
             </CardContent>
           </Card>
         </motion.div>
+
+        {!isComplete && (
+          <a
+            href="/"
+            className="mx-auto block text-center text-xs text-[var(--color-ink-faint)] underline-offset-4 transition-colors hover:text-[var(--color-ink)] hover:underline"
+          >
+            Cancel
+          </a>
+        )}
 
         <SecurityNote />
       </div>

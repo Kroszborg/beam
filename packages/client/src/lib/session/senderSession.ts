@@ -29,6 +29,9 @@ export interface SenderRoomInfo {
   shareUrl: string;
 }
 
+/** How long to wait for a peer connection before surfacing an error. */
+const CONNECT_TIMEOUT_MS = 30_000;
+
 type SenderSessionEvents = {
   state: SenderState;
   progress: TransferProgress;
@@ -105,7 +108,18 @@ export class SenderSession {
     const pc = new PeerConnection('sender', this.roomId, this.signaling, this.iceServers);
     this.pc = pc;
 
+    // If the channel never opens, surface a clear error instead of spinning.
+    const timeout = setTimeout(() => {
+      if (this.pc === pc) {
+        this.emitter.emit(
+          'error',
+          "Couldn't connect to the other device. It may be on a restrictive network — ask them to retry, or try both devices on the same Wi-Fi.",
+        );
+      }
+    }, CONNECT_TIMEOUT_MS);
+
     pc.on('channel-open', (transport) => {
+      clearTimeout(timeout);
       void this.sender!.run(transport);
     });
     // Only retry on failure if a receiver is still around; a fresh peer-joined

@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { FileSender } from './sender.js';
 import { FileReceiver } from './receiver.js';
 import { FileChunker } from './chunker.js';
@@ -27,18 +27,6 @@ interface ResumeRequestLike {
  * authenticate, hash-verify, persist to (fake) IndexedDB, and reassemble files —
  * end to end, plus the resume path.
  */
-
-// URL.createObjectURL isn't available in Node; capture Blobs so we can read back.
-const blobRegistry = new Map<string, Blob>();
-beforeAll(() => {
-  let counter = 0;
-  globalThis.URL.createObjectURL = ((blob: Blob) => {
-    const url = `blob:mock/${counter++}`;
-    blobRegistry.set(url, blob);
-    return url;
-  }) as typeof URL.createObjectURL;
-  globalThis.URL.revokeObjectURL = (() => {}) as typeof URL.revokeObjectURL;
-});
 
 /** A bidirectional in-memory transport pair implementing the Transport contract. */
 class PairedTransport implements Transport {
@@ -130,8 +118,7 @@ describe('transfer protocol (end-to-end, in-memory)', () => {
     // Byte-for-byte verification of each reassembled file.
     for (const original of [fileA, fileB]) {
       const out = files.find((f) => f.name === original.name)!;
-      const blob = blobRegistry.get(out.url)!;
-      const got = new Uint8Array(await blob.arrayBuffer());
+      const got = await out.getBytes();
       const want = await fileBytes(original);
       expect(got.length).toBe(want.length);
       // Spot-check boundaries + a sampling to keep the assertion fast.

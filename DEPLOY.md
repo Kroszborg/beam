@@ -234,6 +234,22 @@ certbot edits the nginx config to add `:443` + auto-redirect and sets up renewal
 Visit **https://beam.kroszborg.co** — done. WebRTC + clipboard require HTTPS, so
 this step is mandatory for production.
 
+### Security headers (recommended)
+
+Add these inside the `server { ... }` block (the `:443` one certbot created) and
+`sudo systemctl reload nginx`:
+
+```nginx
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+# Optional, stricter — test before committing (a wrong CSP breaks the app):
+# add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'" always;
+```
+
 ---
 
 ## 8. Optional: TURN for strict networks

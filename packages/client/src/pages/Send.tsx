@@ -151,6 +151,16 @@ function ShareAndProgress({
           )}
         </CardContent>
       </Card>
+
+      {!isComplete && !isError && (
+        <button
+          onClick={() => window.location.assign('/send')}
+          className="mx-auto block text-xs text-[var(--color-ink-faint)] underline-offset-4 transition-colors hover:text-[var(--color-ink)] hover:underline"
+        >
+          Cancel and start over
+        </button>
+      )}
+
       <SecurityNote />
     </motion.div>
   );
