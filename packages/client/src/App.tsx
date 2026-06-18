@@ -1,7 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { BrowserSupportGate } from '@/components/BrowserSupportGate';
-import { SmoothScroll } from '@/components/SmoothScroll';
 
 const HomePage = lazy(() => import('@/pages/Home').then((m) => ({ default: m.HomePage })));
 const SendPage = lazy(() => import('@/pages/Send').then((m) => ({ default: m.SendPage })));
@@ -19,7 +18,6 @@ export function App() {
   return (
     <BrowserSupportGate>
       <BrowserRouter>
-        <SmoothScroll />
         <Suspense fallback={null}>
           <Routes>
             <Route path="/" element={<HomePage />} />

@@ -55,25 +55,15 @@
     color-scheme: dark;
   }
 
+  html {
+    /* Native, snappy scrolling; smooth only for in-page anchor jumps. */
+    scroll-behavior: smooth;
+  }
+
   html,
   body,
   #root {
     height: 100%;
-  }
-
-  /* Lenis smooth-scroll base styles. */
-  html.lenis,
-  html.lenis body {
-    height: auto;
-  }
-  .lenis.lenis-smooth {
-    scroll-behavior: auto !important;
-  }
-  .lenis.lenis-smooth [data-lenis-prevent] {
-    overscroll-behavior: contain;
-  }
-  .lenis.lenis-stopped {
-    overflow: hidden;
   }
 
   body {

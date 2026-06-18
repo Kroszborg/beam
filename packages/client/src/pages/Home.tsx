@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -12,8 +12,6 @@ import {
   RotateCcw,
   type LucideIcon,
 } from 'lucide-react';
-import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { PageShell } from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,10 +19,6 @@ import { Reveal } from '@/components/Reveal';
 import { SupportSection } from '@/components/landing/SupportSection';
 import { AboutDev } from '@/components/landing/AboutDev';
 import { Faq } from '@/components/landing/Faq';
-
-const HEADLINE = ['Send', 'files,', 'privately.'];
-
-gsap.registerPlugin(ScrollTrigger);
 
 const HOW: { n: string; title: string; body: string; icon: LucideIcon }[] = [
   { n: '01', title: 'Encrypt locally', body: 'Files are encrypted in your browser before a single byte ever leaves your device.', icon: LockKeyhole },
@@ -42,32 +36,12 @@ const SECURITY: { k: string; v: string; icon: LucideIcon }[] = [
 const ease = [0.22, 1, 0.36, 1] as const;
 
 export function HomePage() {
-  const heroRef = useRef<HTMLElement>(null);
-  const auraRef = useRef<HTMLDivElement>(null);
-
-  // Subtle scroll parallax on the ambient background (transform only).
-  useEffect(() => {
-    if (!heroRef.current || !auraRef.current) return;
-    const ctx = gsap.context(() => {
-      gsap.to(auraRef.current, {
-        scrollTrigger: { trigger: heroRef.current, start: 'top top', end: 'bottom top', scrub: 1 },
-        yPercent: -10,
-        ease: 'none',
-      });
-    });
-    return () => ctx.revert();
-  }, []);
-
   return (
     <PageShell>
       {/* ── Hero — quiet, centered editorial ─────────────────── */}
-      <section
-        ref={heroRef}
-        className="relative flex min-h-[88vh] items-center justify-center text-center"
-      >
+      <section className="relative flex min-h-[88vh] items-center justify-center text-center">
         {/* Full-viewport-width atmospheric backdrop */}
         <div
-          ref={auraRef}
           aria-hidden
           className="pointer-events-none absolute left-1/2 top-1/2 -z-0 h-[130%] w-screen -translate-x-1/2 -translate-y-1/2 overflow-hidden"
         >
