@@ -23,6 +23,7 @@ import { PeerConnection, fetchIceServers } from '../webrtc/index.js';
 import { FileSender } from '../transfer/index.js';
 import type { SenderState, TransferProgress } from '../transfer/index.js';
 import { Emitter } from '../events.js';
+import type { SessionDeps } from './deps.js';
 
 export interface SenderRoomInfo {
   roomId: string;
@@ -54,6 +55,7 @@ export class SenderSession {
   constructor(
     private readonly signalingUrl: string,
     private readonly appOrigin: string,
+    private readonly deps: SessionDeps = {},
   ) {}
 
   async start(files: File[]): Promise<void> {
@@ -71,8 +73,10 @@ export class SenderSession {
     await this.sender.prepare();
 
     // 3. ICE config + signaling room.
-    this.iceServers = await fetchIceServers(this.signalingUrl);
-    this.signaling = new SignalingClient(this.signalingUrl);
+    this.iceServers = await (this.deps.fetchIce ?? fetchIceServers)(this.signalingUrl);
+    this.signaling = this.deps.createSignaling
+      ? this.deps.createSignaling(this.signalingUrl)
+      : new SignalingClient(this.signalingUrl);
     await this.signaling.connect();
     const { roomId } = await this.signaling.createRoom();
     this.roomId = roomId;
@@ -105,7 +109,9 @@ export class SenderSession {
     if (!this.signaling || !this.sender || !this.roomId) return;
 
     this.pc?.close();
-    const pc = new PeerConnection('sender', this.roomId, this.signaling, this.iceServers);
+    const pc = this.deps.createPeer
+      ? this.deps.createPeer('sender', this.roomId, this.signaling, this.iceServers)
+      : new PeerConnection('sender', this.roomId, this.signaling, this.iceServers);
     this.pc = pc;
 
     // If the channel never opens, surface a clear error instead of spinning.

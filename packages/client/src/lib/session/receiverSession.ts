@@ -12,6 +12,7 @@ import { importKeyFromFragment } from '../crypto/index.js';
 import { SignalingClient } from '../signaling/signalingClient.js';
 import { PeerConnection, fetchIceServers } from '../webrtc/index.js';
 import { FileReceiver } from '../transfer/index.js';
+import type { SessionDeps } from './deps.js';
 import type {
   ReceiverState,
   TransferProgress,
@@ -42,7 +43,10 @@ export class ReceiverSession {
 
   readonly on = this.emitter.on.bind(this.emitter);
 
-  constructor(private readonly signalingUrl: string) {}
+  constructor(
+    private readonly signalingUrl: string,
+    private readonly deps: SessionDeps = {},
+  ) {}
 
   async start(roomId: string, keyFragment: string): Promise<void> {
     this.roomId = roomId;
@@ -67,8 +71,10 @@ export class ReceiverSession {
       onError: (m) => this.emitter.emit('error', m),
     });
 
-    this.iceServers = await fetchIceServers(this.signalingUrl);
-    this.signaling = new SignalingClient(this.signalingUrl);
+    this.iceServers = await (this.deps.fetchIce ?? fetchIceServers)(this.signalingUrl);
+    this.signaling = this.deps.createSignaling
+      ? this.deps.createSignaling(this.signalingUrl)
+      : new SignalingClient(this.signalingUrl);
     await this.signaling.connect();
 
     try {
@@ -102,7 +108,9 @@ export class ReceiverSession {
   private createPeer(): void {
     if (!this.signaling || !this.receiver || !this.roomId || this.done) return;
     this.pc?.close();
-    const pc = new PeerConnection('receiver', this.roomId, this.signaling, this.iceServers);
+    const pc = this.deps.createPeer
+      ? this.deps.createPeer('receiver', this.roomId, this.signaling, this.iceServers)
+      : new PeerConnection('receiver', this.roomId, this.signaling, this.iceServers);
     this.pc = pc;
     pc.on('channel-open', (transport) => {
       this.channelOpened = true;
