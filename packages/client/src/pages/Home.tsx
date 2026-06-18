@@ -21,6 +21,9 @@ import { Reveal } from '@/components/Reveal';
 import { SupportSection } from '@/components/landing/SupportSection';
 import { AboutDev } from '@/components/landing/AboutDev';
 import { Faq } from '@/components/landing/Faq';
+import { HeroMock } from '@/components/landing/HeroMock';
+
+const SPECS = ['AES-256-GCM', 'WebRTC P2P', 'No accounts'];
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -58,42 +61,28 @@ export function HomePage() {
 
   return (
     <PageShell>
-      {/* ── Hero — lightweight ambient light, text always on top ── */}
+      {/* ── Hero — split product showcase ────────────────────── */}
       <section
         ref={heroRef}
-        className="relative flex min-h-[86vh] flex-col items-center justify-center text-center"
+        className="relative grid items-center gap-14 py-8 lg:min-h-[80vh] lg:grid-cols-[1.04fr_0.96fr] lg:gap-10 lg:py-12"
       >
-        {/* Ambient background: faded grid + slow-drifting light blobs. Pure CSS —
-            light, reliable on every device, and always behind the text. */}
-        <div ref={auraRef} className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden>
-          <div className="dotgrid absolute inset-0 opacity-[0.12] [mask-image:radial-gradient(ellipse_60%_55%_at_50%_42%,#000,transparent_78%)]" />
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 1.6, ease }}
-            className="absolute left-1/2 top-[40%] -translate-x-1/2 -translate-y-1/2"
-          >
-            <div
-              className="animate-float-slow h-[44rem] w-[44rem] rounded-full blur-[120px]"
-              style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.07), transparent 60%)' }}
-            />
-          </motion.div>
-          <div className="absolute left-[64%] top-[58%] -translate-x-1/2 -translate-y-1/2">
-            <div
-              className="animate-float-slower h-[26rem] w-[26rem] rounded-full blur-[120px]"
-              style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.045), transparent 62%)' }}
-            />
-          </div>
+        {/* one soft, parallaxed glow for atmosphere */}
+        <div ref={auraRef} className="pointer-events-none absolute inset-0 -z-0 overflow-hidden" aria-hidden>
+          <div
+            className="animate-float-slow absolute left-[28%] top-[38%] h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[140px]"
+            style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.06), transparent 62%)' }}
+          />
         </div>
 
-        {/* Content */}
-        <div className="relative z-10 flex flex-col items-center px-1">
+        {/* Copy */}
+        <div className="relative z-10 text-center lg:text-left">
           <motion.p
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease }}
-            className="eyebrow text-[var(--color-ink-faint)]"
+            className="eyebrow inline-flex items-center gap-2 text-[var(--color-ink-faint)]"
           >
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-mint)]" />
             End-to-end encrypted · peer-to-peer
           </motion.p>
 
@@ -101,7 +90,7 @@ export function HomePage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.9, ease, delay: 0.06 }}
-            className="mt-6 max-w-[14ch] text-[2.5rem] leading-[1.05] tracking-[-0.02em] sm:text-[6rem] sm:leading-[0.92]"
+            className="mx-auto mt-6 max-w-[13ch] text-[2.7rem] leading-[1.02] tracking-[-0.02em] sm:text-[4.3rem] lg:mx-0 lg:text-[5rem] lg:leading-[0.94]"
           >
             Send files, <span className="serif-italic">privately.</span>
           </motion.h1>
@@ -110,7 +99,7 @@ export function HomePage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.9, ease, delay: 0.14 }}
-            className="mt-6 max-w-md text-base leading-relaxed text-[var(--color-ink-soft)] sm:text-lg"
+            className="mx-auto mt-6 max-w-md text-base leading-relaxed text-[var(--color-ink-soft)] sm:text-lg lg:mx-0"
           >
             Encrypted in your browser. Streamed straight to the other device. No cloud,
             no accounts, no trace.
@@ -120,7 +109,7 @@ export function HomePage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.9, ease, delay: 0.22 }}
-            className="mt-9 flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row"
+            className="mt-9 flex w-full flex-col items-center gap-3 sm:flex-row sm:justify-center lg:w-auto lg:justify-start"
           >
             <Button asChild size="lg" className="w-full sm:w-auto">
               <Link to="/send">
@@ -132,6 +121,24 @@ export function HomePage() {
               <a href="#how">How it works</a>
             </Button>
           </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.8, delay: 0.34 }}
+            className="mt-10 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 lg:justify-start"
+          >
+            {SPECS.map((s) => (
+              <span key={s} className="eyebrow text-[var(--color-ink-faint)]">
+                {s}
+              </span>
+            ))}
+          </motion.div>
+        </div>
+
+        {/* Product mockup */}
+        <div className="relative z-10">
+          <HeroMock />
         </div>
       </section>
 

@@ -24,10 +24,13 @@
   --color-line: #1b1b1f;
   --color-line-strong: #2c2c33;
 
-  /* Monochrome accent + semantic colors (sparingly) */
-  --color-signal: #f4f4f6; /* white/silver — the "accent" is light itself */
+  /* Monochrome base accent (white is the primary action color) */
+  --color-signal: #f4f4f6;
   --color-signal-deep: #d6d6db;
-  --color-positive: #4ade80; /* live / verified */
+  /* Single chromatic accent — refined emerald, used only for secure/live cues */
+  --color-mint: #54d6a6;
+  --color-mint-deep: #2bbd8a;
+  --color-positive: #54d6a6;
   --color-danger: #f0686a;
 
   --radius-card: 16px;
