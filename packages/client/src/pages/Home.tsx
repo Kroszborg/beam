@@ -21,9 +21,8 @@ import { Reveal } from '@/components/Reveal';
 import { SupportSection } from '@/components/landing/SupportSection';
 import { AboutDev } from '@/components/landing/AboutDev';
 import { Faq } from '@/components/landing/Faq';
-import { HeroMock } from '@/components/landing/HeroMock';
 
-const SPECS = ['AES-256-GCM', 'WebRTC P2P', 'No accounts'];
+const HEADLINE = ['Send', 'files,', 'privately.'];
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -61,85 +60,88 @@ export function HomePage() {
 
   return (
     <PageShell>
-      {/* ── Hero — split product showcase ────────────────────── */}
+      {/* ── Hero — quiet, full-bleed editorial ───────────────── */}
       <section
         ref={heroRef}
-        className="relative grid items-center gap-14 py-8 lg:min-h-[80vh] lg:grid-cols-[1.04fr_0.96fr] lg:gap-10 lg:py-12"
+        className="relative flex min-h-[88vh] items-center"
       >
-        {/* one soft, parallaxed glow for atmosphere */}
-        <div ref={auraRef} className="pointer-events-none absolute inset-0 -z-0 overflow-hidden" aria-hidden>
+        {/* Full-viewport-width atmospheric backdrop (breaks out of the column) */}
+        <div
+          ref={auraRef}
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 top-1/2 -z-0 h-[130%] w-screen -translate-x-1/2 -translate-y-1/2 overflow-hidden"
+        >
           <div
-            className="animate-float-slow absolute left-[28%] top-[38%] h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[140px]"
-            style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.06), transparent 62%)' }}
+            className="animate-float-slow absolute left-[34%] top-[44%] h-[58rem] w-[58rem] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px]"
+            style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.055), transparent 60%)' }}
           />
+          <div className="dotgrid absolute inset-0 opacity-[0.08] [mask-image:radial-gradient(ellipse_50%_50%_at_40%_45%,#000,transparent_80%)]" />
         </div>
 
-        {/* Copy */}
-        <div className="relative z-10 text-center lg:text-left">
+        {/* Copy — centered-left, editorial */}
+        <div className="relative z-10 max-w-2xl">
           <motion.p
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease }}
-            className="eyebrow inline-flex items-center gap-2 text-[var(--color-ink-faint)]"
+            transition={{ duration: 0.7, ease }}
+            className="eyebrow text-[var(--color-ink-faint)]"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-mint)]" />
             End-to-end encrypted · peer-to-peer
           </motion.p>
 
           <motion.h1
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.9, ease, delay: 0.06 }}
-            className="mx-auto mt-6 max-w-[13ch] text-[2.7rem] leading-[1.02] tracking-[-0.02em] sm:text-[4.3rem] lg:mx-0 lg:text-[5rem] lg:leading-[0.94]"
+            transition={{ duration: 1, ease, delay: 0.12 }}
+            className="mt-7 text-[3rem] leading-[1.0] tracking-[-0.025em] sm:text-[5rem] lg:text-[6.25rem] lg:leading-[0.95]"
           >
-            Send files, <span className="serif-italic">privately.</span>
+            Send files,
+            <br />
+            <span className="serif-italic">privately.</span>
           </motion.h1>
 
           <motion.p
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.9, ease, delay: 0.14 }}
-            className="mx-auto mt-6 max-w-md text-base leading-relaxed text-[var(--color-ink-soft)] sm:text-lg lg:mx-0"
+            transition={{ duration: 0.8, ease, delay: 0.26 }}
+            className="mt-8 max-w-md text-base font-normal leading-relaxed text-[var(--color-ink-soft)] sm:text-lg"
           >
-            Encrypted in your browser. Streamed straight to the other device. No cloud,
-            no accounts, no trace.
+            Encrypted in your browser. Sent straight to the other device. No cloud,
+            no accounts.
           </motion.p>
 
           <motion.div
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.9, ease, delay: 0.22 }}
-            className="mt-9 flex w-full flex-col items-center gap-3 sm:flex-row sm:justify-center lg:w-auto lg:justify-start"
+            transition={{ duration: 0.8, ease, delay: 0.34 }}
+            className="mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center"
           >
-            <Button asChild size="lg" className="w-full sm:w-auto">
+            <Button asChild size="lg">
               <Link to="/send">
                 Send a file
-                <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" />
+                <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-1" />
               </Link>
             </Button>
-            <Button asChild variant="ghost" size="lg" className="w-full sm:w-auto">
-              <a href="#how">How it works</a>
-            </Button>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.8, delay: 0.34 }}
-            className="mt-10 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 lg:justify-start"
-          >
-            {SPECS.map((s) => (
-              <span key={s} className="eyebrow text-[var(--color-ink-faint)]">
-                {s}
-              </span>
-            ))}
+            <a
+              href="#how"
+              className="link-ul text-sm text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
+            >
+              How it works
+            </a>
           </motion.div>
         </div>
 
-        {/* Product mockup */}
-        <div className="relative z-10">
-          <HeroMock />
-        </div>
+        {/* Quiet scroll cue */}
+        <a
+          href="#how"
+          className="group absolute bottom-1 left-0 hidden items-center gap-3 lg:flex"
+          aria-label="Scroll to learn more"
+        >
+          <span className="h-8 w-px bg-gradient-to-b from-transparent to-[var(--color-line-strong)]" />
+          <span className="eyebrow text-[var(--color-ink-faint)] transition-colors group-hover:text-[var(--color-ink)]">
+            Scroll
+          </span>
+        </a>
       </section>
 
       {/* ── How it works ─────────────────────────────────────── */}

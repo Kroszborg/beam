@@ -140,21 +140,13 @@
     }
   }
 
-  /* Thin, unobtrusive scrollbar. */
+  /* No visible scrollbars — Lenis handles smooth scrolling. */
   * {
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-line-strong) transparent;
+    scrollbar-width: none;
   }
   *::-webkit-scrollbar {
-    width: 7px;
-    height: 7px;
-  }
-  *::-webkit-scrollbar-thumb {
-    background: var(--color-line-strong);
-    border-radius: 99px;
-  }
-  *::-webkit-scrollbar-track {
-    background: transparent;
+    width: 0;
+    height: 0;
   }
 }
 
