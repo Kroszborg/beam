@@ -60,26 +60,26 @@ export function HomePage() {
 
   return (
     <PageShell>
-      {/* ── Hero — quiet, full-bleed editorial ───────────────── */}
+      {/* ── Hero — quiet, centered editorial ─────────────────── */}
       <section
         ref={heroRef}
-        className="relative flex min-h-[88vh] items-center"
+        className="relative flex min-h-[88vh] items-center justify-center text-center"
       >
-        {/* Full-viewport-width atmospheric backdrop (breaks out of the column) */}
+        {/* Full-viewport-width atmospheric backdrop */}
         <div
           ref={auraRef}
           aria-hidden
           className="pointer-events-none absolute left-1/2 top-1/2 -z-0 h-[130%] w-screen -translate-x-1/2 -translate-y-1/2 overflow-hidden"
         >
           <div
-            className="animate-float-slow absolute left-[34%] top-[44%] h-[58rem] w-[58rem] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px]"
+            className="animate-float-slow absolute left-1/2 top-[46%] h-[58rem] w-[58rem] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px]"
             style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.055), transparent 60%)' }}
           />
-          <div className="dotgrid absolute inset-0 opacity-[0.08] [mask-image:radial-gradient(ellipse_50%_50%_at_40%_45%,#000,transparent_80%)]" />
+          <div className="dotgrid absolute inset-0 opacity-[0.08] [mask-image:radial-gradient(ellipse_55%_55%_at_50%_46%,#000,transparent_82%)]" />
         </div>
 
-        {/* Copy — centered-left, editorial */}
-        <div className="relative z-10 max-w-2xl">
+        {/* Copy — centered editorial */}
+        <div className="relative z-10 mx-auto max-w-3xl">
           <motion.p
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -93,18 +93,16 @@ export function HomePage() {
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, ease, delay: 0.12 }}
-            className="mt-7 text-[3rem] leading-[1.0] tracking-[-0.025em] sm:text-[5rem] lg:text-[6.25rem] lg:leading-[0.95]"
+            className="mt-7 text-[3rem] leading-[1.0] tracking-[-0.025em] sm:text-[5.25rem] lg:text-[6.75rem] lg:leading-[0.95]"
           >
-            Send files,
-            <br />
-            <span className="serif-italic">privately.</span>
+            Send files, <span className="serif-italic">privately.</span>
           </motion.h1>
 
           <motion.p
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease, delay: 0.26 }}
-            className="mt-8 max-w-md text-base font-normal leading-relaxed text-[var(--color-ink-soft)] sm:text-lg"
+            className="mx-auto mt-8 max-w-lg text-base font-normal leading-relaxed text-[var(--color-ink-soft)] sm:text-lg"
           >
             Encrypted in your browser. Sent straight to the other device. No cloud,
             no accounts.
@@ -114,7 +112,7 @@ export function HomePage() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease, delay: 0.34 }}
-            className="mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center"
+            className="mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row"
           >
             <Button asChild size="lg">
               <Link to="/send">
@@ -130,18 +128,6 @@ export function HomePage() {
             </a>
           </motion.div>
         </div>
-
-        {/* Quiet scroll cue */}
-        <a
-          href="#how"
-          className="group absolute bottom-1 left-0 hidden items-center gap-3 lg:flex"
-          aria-label="Scroll to learn more"
-        >
-          <span className="h-8 w-px bg-gradient-to-b from-transparent to-[var(--color-line-strong)]" />
-          <span className="eyebrow text-[var(--color-ink-faint)] transition-colors group-hover:text-[var(--color-ink)]">
-            Scroll
-          </span>
-        </a>
       </section>
 
       {/* ── How it works ─────────────────────────────────────── */}
