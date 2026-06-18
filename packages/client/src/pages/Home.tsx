@@ -1,7 +1,17 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowRight } from 'lucide-react';
+import {
+  ArrowRight,
+  LockKeyhole,
+  Waypoints,
+  BadgeCheck,
+  ServerOff,
+  KeyRound,
+  FileCheck2,
+  RotateCcw,
+  type LucideIcon,
+} from 'lucide-react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { PageShell } from '@/components/PageShell';
@@ -14,17 +24,17 @@ import { Faq } from '@/components/landing/Faq';
 
 gsap.registerPlugin(ScrollTrigger);
 
-const HOW = [
-  { n: '01', title: 'Encrypt locally', body: 'Files are encrypted in your browser before a single byte ever leaves your device.' },
-  { n: '02', title: 'Connect directly', body: 'A peer-to-peer channel opens between both devices. The server only introduces them.' },
-  { n: '03', title: 'Verify on arrival', body: 'Each chunk is checked against a Merkle root, so what lands is exactly what was sent.' },
+const HOW: { n: string; title: string; body: string; icon: LucideIcon }[] = [
+  { n: '01', title: 'Encrypt locally', body: 'Files are encrypted in your browser before a single byte ever leaves your device.', icon: LockKeyhole },
+  { n: '02', title: 'Connect directly', body: 'A peer-to-peer channel opens between both devices. The server only introduces them.', icon: Waypoints },
+  { n: '03', title: 'Verify on arrival', body: 'Each chunk is checked against a Merkle root, so what lands is exactly what was sent.', icon: BadgeCheck },
 ];
 
-const SECURITY = [
-  { k: 'No uploads', v: 'Files travel device to device. Nothing to leak, subpoena, or sell.' },
-  { k: 'Keys stay local', v: 'The key lives in the link fragment. Servers never see it.' },
-  { k: 'Tamper-evident', v: 'Per-chunk hashing surfaces any corruption or tampering instantly.' },
-  { k: 'Resumable', v: 'Drop the connection and it continues from the gap, never from zero.' },
+const SECURITY: { k: string; v: string; icon: LucideIcon }[] = [
+  { k: 'No uploads', v: 'Files travel device to device. Nothing to leak, subpoena, or sell.', icon: ServerOff },
+  { k: 'Keys stay local', v: 'The key lives in the link fragment. Servers never see it.', icon: KeyRound },
+  { k: 'Tamper-evident', v: 'Per-chunk hashing surfaces any corruption or tampering instantly.', icon: FileCheck2 },
+  { k: 'Resumable', v: 'Drop the connection and it continues from the gap, never from zero.', icon: RotateCcw },
 ];
 
 const ease = [0.22, 1, 0.36, 1] as const;
@@ -137,8 +147,10 @@ export function HomePage() {
                     {step.n}
                   </span>
                   <div className="relative">
-                    <span className="eyebrow text-[var(--color-ink-faint)]">Step {step.n}</span>
-                    <h3 className="mt-4 font-display text-xl">{step.title}</h3>
+                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-[var(--color-ink)] transition-colors duration-300 group-hover/card:border-white/20">
+                      <step.icon className="h-[22px] w-[22px]" strokeWidth={1.5} />
+                    </span>
+                    <h3 className="mt-5 font-display text-xl">{step.title}</h3>
                     <p className="mt-3 text-[0.95rem] leading-relaxed text-[var(--color-ink-soft)]">
                       {step.body}
                     </p>
@@ -156,11 +168,16 @@ export function HomePage() {
         <div className="mx-auto mt-14 grid max-w-4xl gap-x-14 gap-y-10 text-left sm:grid-cols-2">
           {SECURITY.map((item, i) => (
             <Reveal key={item.k} delay={i * 0.06}>
-              <div className="border-t border-white/[0.08] pt-5">
-                <h3 className="text-lg">{item.k}</h3>
-                <p className="mt-2 text-[0.95rem] leading-relaxed text-[var(--color-ink-soft)]">
-                  {item.v}
-                </p>
+              <div className="flex gap-4 border-t border-white/[0.08] pt-5">
+                <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-[var(--color-ink)]">
+                  <item.icon className="h-5 w-5" strokeWidth={1.5} />
+                </span>
+                <div>
+                  <h3 className="text-lg">{item.k}</h3>
+                  <p className="mt-2 text-[0.95rem] leading-relaxed text-[var(--color-ink-soft)]">
+                    {item.v}
+                  </p>
+                </div>
               </div>
             </Reveal>
           ))}

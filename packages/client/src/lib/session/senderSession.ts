@@ -43,7 +43,8 @@ export class SenderSession {
   private pc: PeerConnection | null = null;
   private iceServers: RTCIceServer[] = [];
   private roomId: string | null = null;
-  private renegotiating = false;
+  /** Whether a receiver is currently present in the room. */
+  private peerPresent = false;
 
   readonly on = this.emitter.on.bind(this.emitter);
 
@@ -76,39 +77,54 @@ export class SenderSession {
     const shareUrl = `${this.appOrigin}/r/${roomId}#${keyFragment}`;
     this.emitter.emit('room', { roomId, shareUrl });
 
-    // 4. (Re)negotiate whenever a receiver appears or the connection fails.
-    this.signaling.on('peer-joined', () => void this.negotiate());
-    this.signaling.on('peer-left', () => this.emitter.emit('state', 'waiting'));
+    // 4. A receiver appearing is the definitive cue to (re)negotiate — works
+    //    for the first receiver AND every later one that reuses the same link.
+    this.signaling.on('peer-joined', () => {
+      this.peerPresent = true;
+      void this.negotiate();
+    });
+
+    // When a receiver leaves, drop the dead connection and wait. We do NOT
+    // auto-offer into an empty room (that used to wedge the next receiver).
+    this.signaling.on('peer-left', () => {
+      this.peerPresent = false;
+      this.pc?.close();
+      this.pc = null;
+      this.emitter.emit('state', 'waiting');
+    });
   }
 
+  /**
+   * Tear down any existing connection and start a fresh offer. Called on every
+   * `peer-joined`, so each receiver — first or fifth — gets a clean handshake.
+   */
   private async negotiate(): Promise<void> {
     if (!this.signaling || !this.sender || !this.roomId) return;
-    if (this.renegotiating) return;
-    this.renegotiating = true;
 
     this.pc?.close();
     const pc = new PeerConnection('sender', this.roomId, this.signaling, this.iceServers);
     this.pc = pc;
 
     pc.on('channel-open', (transport) => {
-      this.renegotiating = false;
       void this.sender!.run(transport);
     });
-    pc.on('failed', () => this.scheduleRenegotiate());
-    pc.on('disconnected', () => this.scheduleRenegotiate());
+    // Only retry on failure if a receiver is still around; a fresh peer-joined
+    // would re-negotiate anyway. Guard on `this.pc === pc` so a superseded
+    // connection never fights the current one.
+    const retry = () => {
+      if (this.peerPresent && this.pc === pc) {
+        setTimeout(() => {
+          if (this.peerPresent && this.pc === pc) void this.negotiate();
+        }, 800);
+      }
+    };
+    pc.on('failed', retry);
 
     try {
       await pc.start(); // create data channel + offer
     } catch (err) {
-      this.renegotiating = false;
       this.emitter.emit('error', (err as Error).message);
     }
-  }
-
-  private scheduleRenegotiate(): void {
-    // Allow a fresh negotiation, then retry shortly once things settle.
-    this.renegotiating = false;
-    setTimeout(() => void this.negotiate(), 500);
   }
 
   close(): void {

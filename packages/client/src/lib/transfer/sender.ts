@@ -97,6 +97,8 @@ export class FileSender {
    */
   async run(transport: Transport): Promise<void> {
     if (!this.manifest) throw new Error('call prepare() before run()');
+    // Fresh cycle for each receiver that connects (incl. re-used links).
+    this.completed = false;
     this.callbacks.onState?.('connected');
 
     transport.onMessage((data) => {
