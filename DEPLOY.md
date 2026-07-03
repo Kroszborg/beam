@@ -281,3 +281,75 @@ sudo journalctl -u beam-server -f              # live server logs
 
 Open `/send` in one browser and the generated link in another to confirm a real
 end-to-end transfer over the deployed stack.
+
+---
+
+# Alternative: AWS Lightsail
+
+Lightsail is a good low-cost home for Beam. The **$5/mo plan (512 MB RAM,
+2 vCPU)** is enough to *run* it — the signaling server is featherweight because
+file bytes never pass through the VM (they go peer-to-peer or via a TURN relay).
+The only catch is that **512 MB is tight for the Vite build**, so add swap.
+
+Advantages over a plain VM: a **free static IP** (no more IP-changes-on-restart)
+and ~1 TB included transfer.
+
+## L1. Console setup
+
+- **Networking → Static IP → Create & attach** to the instance. Use this IP for DNS.
+- **Networking → IPv4 Firewall → add** HTTP (80) and HTTPS (443). SSH (22) is default.
+
+## L2. Connect (from Windows PowerShell)
+
+Lightsail hands you a `.pem` key. Lock it down first (OpenSSH refuses world-
+readable keys), then connect:
+
+```powershell
+$key = "C:\path\to\LightsailDefaultKey-ap-south-1.pem"
+icacls $key /inheritance:r /grant:r "$($env:USERNAME):(R)"
+ssh -i $key ubuntu@<STATIC_IP>
+```
+
+## L3. Swap (important on 512 MB)
+
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h
+```
+
+## L4. Install, build, configure
+
+The user is `ubuntu` (not a custom user). Everything else mirrors the GCP steps:
+
+```bash
+sudo apt update && sudo apt upgrade -y
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs redis-server nginx git certbot python3-certbot-nginx
+sudo corepack enable
+sudo systemctl enable --now redis-server
+
+sudo mkdir -p /opt/beam && sudo chown $USER /opt/beam
+git clone https://github.com/Kroszborg/beam /opt/beam
+cd /opt/beam && pnpm install --frozen-lockfile
+cd packages/client
+VITE_SIGNALING_URL=https://beam.kroszborg.co ./node_modules/.bin/vite build
+cd /opt/beam && sudo mkdir -p /var/www/beam && sudo cp -r packages/client/dist/* /var/www/beam/
+```
+
+Then create `/opt/beam/.env` (§4 — use `TURN_API_URL` for Metered), the systemd
+service (§5), and the nginx config (§6) exactly as in the GCP guide.
+
+## L5. DNS + HTTPS
+
+Point the `beam` A record at the **Lightsail static IP**, confirm with
+`getent hosts beam.kroszborg.co`, then:
+
+```bash
+sudo certbot --nginx -d beam.kroszborg.co --redirect --agree-tos -m you@example.com -n
+curl -s https://beam.kroszborg.co/health && echo
+curl -s https://beam.kroszborg.co/ice && echo
+```
+
+Redeploys and quick checks are identical to §9 / §10 above.
