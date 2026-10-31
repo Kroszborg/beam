@@ -10,6 +10,7 @@ import { ProgressView } from '@/components/ProgressView';
 import { SecurityNote } from '@/components/SecurityNote';
 import { StatusStepper } from '@/components/StatusStepper';
 import { RouteBadge } from '@/components/RouteBadge';
+import { Previews } from '@/components/Previews';
 import { useReceiverSession, type UseReceiver } from '@/hooks/useReceiverSession';
 import type { ReceiveTarget } from '@/lib/session/receiverSession';
 import { useKeepAlive } from '@/hooks/useKeepAlive';
@@ -96,6 +97,7 @@ export function ReceiveFlow({ target, onRetry }: { target: ReceiveTarget | null;
                     </p>
                   )}
                   {progress && <ProgressView progress={progress} />}
+                  {rx.preview && <Previews store={rx.preview} />}
                   <button
                     onClick={() => {
                       if (window.confirm('Cancel this download?')) rx.cancel();
@@ -108,6 +110,7 @@ export function ReceiveFlow({ target, onRetry }: { target: ReceiveTarget | null;
               )}
 
               {isComplete && <Completed rx={rx} />}
+              {isComplete && rx.preview && <Previews store={rx.preview} />}
 
               {isError && (
                 <div className="flex items-start gap-2 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]">

@@ -15,6 +15,7 @@ import type {
 } from '@/lib/transfer';
 import type { Route } from '@/lib/webrtc';
 import { SIGNALING_URL } from '@/config/env';
+import type { PreviewStore } from '@/lib/preview/previewStore';
 
 export interface UseReceiver {
   state: ReceiverState;
@@ -24,6 +25,8 @@ export interface UseReceiver {
   /** Files still to be saved by hand, or null when they went straight to disk. */
   files: CompletedFile[] | null;
   waiting: boolean;
+  /** Previews of the files being received (null until receiving starts). */
+  preview: PreviewStore | null;
   error: string | null;
   accept: (fileIndices: number[], sink: SinkKind) => Promise<void>;
   cancel: () => void;
@@ -37,6 +40,7 @@ export function useReceiverSession(target: ReceiveTarget | null): UseReceiver {
   const [route, setRoute] = useState<Route | null>(null);
   const [files, setFiles] = useState<CompletedFile[] | null>(null);
   const [waiting, setWaiting] = useState(false);
+  const [preview, setPreview] = useState<PreviewStore | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Stable identity for the effect: one session per distinct target.
@@ -60,6 +64,7 @@ export function useReceiverSession(target: ReceiveTarget | null): UseReceiver {
     session.on('route', setRoute);
     session.on('complete', setFiles);
     session.on('waiting', setWaiting);
+    session.on('preview', setPreview);
     session.on('error', setError);
     void session.start(target).catch((e: Error) => {
       setError(e.message);
@@ -81,5 +86,5 @@ export function useReceiverSession(target: ReceiveTarget | null): UseReceiver {
     void sessionRef.current?.cancel();
   }, []);
 
-  return { state, manifest, progress, route, files, waiting, error, accept, cancel };
+  return { state, manifest, progress, route, files, waiting, preview, error, accept, cancel };
 }

@@ -340,6 +340,97 @@ test('stored copy after the sender closed the tab (store-and-forward)', async ({
   }
 });
 
+/** Make real media in the browser: a WebM clip (MediaRecorder) and a PNG. */
+async function makeMedia(browser: Browser): Promise<{ video: string; image: string; text: string }> {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  await page.goto('/');
+  const { webm, png } = await page.evaluate(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = 240;
+    const g = canvas.getContext('2d')!;
+    const rec = new MediaRecorder(canvas.captureStream(30), { mimeType: 'video/webm', videoBitsPerSecond: 2_000_000 });
+    const parts: Blob[] = [];
+    rec.ondataavailable = (e) => parts.push(e.data);
+    rec.start(250);
+    const t0 = performance.now();
+    await new Promise<void>((done) => {
+      const draw = () => {
+        const t = performance.now() - t0;
+        g.fillStyle = `hsl(${(t / 10) % 360} 70% 50%)`;
+        g.fillRect(0, 0, 320, 240);
+        g.fillStyle = '#fff';
+        g.fillText(String(Math.round(t)), 20 + ((t / 5) % 260), 120);
+        if (t < 2500) requestAnimationFrame(draw);
+        else done();
+      };
+      draw();
+    });
+    rec.stop();
+    await new Promise((r) => (rec.onstop = r));
+    const toB64 = async (b: Blob) => {
+      const u = new Uint8Array(await b.arrayBuffer());
+      let s = '';
+      for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000));
+      return btoa(s);
+    };
+    const pngBlob = await new Promise<Blob>((r) => canvas.toBlob((b) => r(b!), 'image/png'));
+    return { webm: await toB64(new Blob(parts, { type: 'video/webm' })), png: await toB64(pngBlob) };
+  });
+  await ctx.close();
+  const { writeFileSync } = await import('node:fs');
+  const video = join(dir, 'clip.webm');
+  const image = join(dir, 'pic.png');
+  const text = join(dir, 'notes.txt');
+  writeFileSync(video, Buffer.from(webm, 'base64'));
+  writeFileSync(image, Buffer.from(png, 'base64'));
+  writeFileSync(text, 'Hello from Beam previews.\nLine two.\n');
+  return { video, image, text };
+}
+
+test('preview video, image and text while receiving', async ({ browser }) => {
+  const media = await makeMedia(browser);
+  const big = await makeFile('after.bin', 40, 31);
+  const sctx = await browser.newContext();
+  const rctx = await browser.newContext({ acceptDownloads: true });
+  try {
+    const { url } = await openSender(sctx, [media.video, media.image, media.text, big]);
+    const rx = await openReceiver(rctx, url, 'stream');
+    const ranged: number[] = [];
+    rx.on('response', (r) => r.url().includes('/__beam_preview/') && ranged.push(r.status()));
+    const downloading = rx.waitForEvent('download', { timeout: 60_000 });
+    await rx.getByRole('button', { name: /^(download|save)/i }).click();
+    await expect(rx.getByTestId('previews')).toBeVisible({ timeout: 30_000 });
+
+    const row = (name: string) => rx.getByTestId('previews').locator('li', { hasText: name }).getByTestId('preview-open');
+    await expect(row('clip.webm')).toBeEnabled({ timeout: 30_000 });
+    await row('clip.webm').click();
+    const video = rx.getByTestId('preview-video');
+    await expect
+      .poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState), { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(2);
+    expect(ranged).toContain(206); // served in ranges by the service worker
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth)).toBe(320);
+    // …and it played while the rest of the transfer (40 MB) was still arriving.
+    expect(await rx.getByTestId('saved').count()).toBe(0);
+
+    await expect(row('pic.png')).toBeEnabled({ timeout: 30_000 });
+    await row('pic.png').click();
+    await expect
+      .poll(() => rx.getByTestId('preview-image').evaluate((i: HTMLImageElement) => i.naturalWidth))
+      .toBe(320);
+
+    await expect(row('notes.txt')).toBeEnabled({ timeout: 30_000 });
+    await row('notes.txt').click();
+    await expect(rx.getByTestId('preview-text')).toContainText('Hello from Beam previews.');
+    await downloading;
+  } finally {
+    await sctx.close();
+    await rctx.close();
+  }
+});
+
 test('server relay fallback', async ({ browser }) => {
   await transfer(browser, [{ name: 'relayed.bin', mb: 30 }], {
     sink: 'stream',

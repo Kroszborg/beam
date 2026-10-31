@@ -39,6 +39,11 @@ export interface FileReceiverCallbacks {
   /** Files still to be saved by hand (idb sink), or null when already on disk. */
   onComplete?: (files: CompletedFile[] | null) => void;
   onError?: (message: string) => void;
+  /**
+   * Each decrypted chunk, before it's handed to the sink (which may transfer
+   * the buffer away). Used for previews.
+   */
+  onPlaintext?: (fileIndex: number, offset: number, data: Uint8Array) => void;
 }
 
 const TAG_BYTES = GCM_TAG_BITS / 8;
@@ -245,6 +250,7 @@ export class FileReceiver {
     } catch {
       return this.fail(`Chunk ${index} failed authentication — the data was corrupted or tampered with.`);
     }
+    this.cb.onPlaintext?.(target.fileIndex, target.byteStart, plaintext);
     try {
       await this.sink.write({
         chunkIndex: index,

@@ -38,6 +38,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(receiveShare(event.request));
     return;
   }
+  if (url.pathname.startsWith(PREVIEW_PREFIX)) {
+    event.respondWith(previewResponse(event, url));
+    return;
+  }
   if (!url.pathname.startsWith(PREFIX)) return;
 
   const rest = url.pathname.slice(PREFIX.length);
@@ -99,6 +103,66 @@ function streamResponse({ port, name, size, mime }) {
   });
   if (typeof size === 'number' && size >= 0) headers.set('Content-Length', String(size));
   return new Response(stream, { headers });
+}
+
+// ── Previews while receiving ──────────────────────────────────
+//
+// /__beam_preview/<store>/<file> is answered from the bytes the receiving page
+// has decrypted so far (see lib/preview/previewStore.ts). The page picks the
+// Content-Type from an allow-list of media types; nosniff stops the browser
+// from second-guessing it, so received files are never rendered as HTML here.
+
+const PREVIEW_PREFIX = '/__beam_preview/';
+
+function askClient(client, message) {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const timer = setTimeout(() => resolve(null), 30_000);
+    channel.port1.onmessage = ({ data }) => {
+      clearTimeout(timer);
+      resolve(data && data.status === 'ok' ? data : null);
+    };
+    client.postMessage(message, [channel.port2]);
+  });
+}
+
+async function previewResponse(event, url) {
+  const m = /^bytes=(\d+)-(\d*)$/.exec(event.request.headers.get('range') || '');
+  const start = m ? Number(m[1]) : 0;
+  const end = m && m[2] ? Number(m[2]) : null;
+  const message = { type: 'beam-preview', path: url.pathname, start, end, whole: !m };
+
+  // The page that requested it (a <video>), or — for a preview opened in its
+  // own tab — whichever Beam page holds that transfer.
+  let reply = null;
+  const own = event.clientId && (await self.clients.get(event.clientId));
+  if (own) reply = await askClient(own, message);
+  if (!reply) {
+    for (const client of await self.clients.matchAll({ type: 'window' })) {
+      reply = await askClient(client, message);
+      if (reply) break;
+    }
+  }
+  if (!reply) return new Response('This preview is no longer available.', { status: 404 });
+
+  const last = reply.start + reply.blob.size - 1;
+  const headers = new Headers({
+    'Content-Type': reply.mime,
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'no-store',
+    'Accept-Ranges': 'bytes',
+    'Content-Length': String(reply.blob.size),
+  });
+  if (!m) {
+    // Whole-file request (a PDF in a new tab): only once the file is complete.
+    if (reply.start !== 0 || reply.blob.size !== reply.total) {
+      return new Response('Still receiving — try again when the file has finished.', { status: 409 });
+    }
+    headers.set('Content-Disposition', 'inline');
+    return new Response(reply.blob, { status: 200, headers });
+  }
+  headers.set('Content-Range', `bytes ${reply.start}-${last}/${reply.total}`);
+  return new Response(reply.blob, { status: 206, headers });
 }
 
 // ── Share target ──────────────────────────────────────────────

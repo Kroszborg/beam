@@ -29,6 +29,7 @@ import { parseCode, MAX_CODE_ATTEMPTS } from '../codes.js';
 import { SignalingClient } from '../signaling/signalingClient.js';
 import { StoreApi } from '../store/storeApi.js';
 import { StoreTransport } from '../store/storeTransport.js';
+import { PreviewStore } from '../preview/previewStore.js';
 import {
   PeerConnection,
   RelayTransport,
@@ -55,6 +56,8 @@ type ReceiverSessionEvents = {
   complete: CompletedFile[] | null;
   /** The sender's connection dropped; we're waiting for it to come back. */
   waiting: boolean;
+  /** Previews for the selected files (set once receiving starts). */
+  preview: PreviewStore;
   error: string;
 };
 
@@ -93,6 +96,7 @@ export class ReceiverSession {
   /** Downloading the sender's stored copy instead of from the sender. */
   private store: StoreTransport | null = null;
   private storeTimer: ReturnType<typeof setTimeout> | null = null;
+  private preview: PreviewStore | null = null;
   /** Set by close(); start() checks it after every await so a session torn
    *  down mid-start (e.g. React StrictMode remount) never joins the room. */
   private closed = false;
@@ -271,6 +275,7 @@ export class ReceiverSession {
         this.emitter.emit('complete', files);
       },
       onError: (m) => this.emitter.emit('error', m),
+      onPlaintext: (fileIndex, offset, data) => this.preview?.push(fileIndex, offset, data),
     });
     const early = this.pendingTransport;
     this.pendingTransport = null;
@@ -288,6 +293,9 @@ export class ReceiverSession {
     const files = fileIndices.map((index) => ({ index, ...manifest.files[index]! }));
     const ranges = new Map(fileIndices.map((i) => [i, layout.range(i)] as const));
     const picked = await (this.deps.chooseSink ?? chooseSink)(sink, manifest.transferId, files, ranges);
+    this.preview?.dispose();
+    this.preview = new PreviewStore(files.map((f) => ({ index: f.index, path: f.path, size: f.size, type: f.type })));
+    this.emitter.emit('preview', this.preview);
     await this.receiver.accept(fileIndices, picked);
   }
 
@@ -378,6 +386,7 @@ export class ReceiverSession {
     if (this.connectTimer) clearTimeout(this.connectTimer);
     if (this.storeTimer) clearTimeout(this.storeTimer);
     this.store?.close();
+    this.preview?.dispose();
     this.relay?.close();
     this.pc?.close();
     this.signaling?.close();
