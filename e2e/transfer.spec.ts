@@ -143,6 +143,23 @@ async function transfer(browser: Browser, files: Spec[], opts: RunOptions): Prom
   const ctx = async () => {
     const c = await browser.newContext({ acceptDownloads: true });
     contexts.push(c);
+    if (process.env.BEAM_E2E_DEBUG) {
+      // Timestamped page console + signaling frames, for diagnosing stalls.
+      const who = `ctx${contexts.length}`;
+      const t0 = Date.now();
+      const log = (m: string) => console.log(`[dbg +${((Date.now() - t0) / 1000).toFixed(1)}s ${who}] ${m.slice(0, 160)}`);
+      c.on('page', (p) => {
+        p.on('console', (m) => log(`console.${m.type()}: ${m.text()}`));
+        p.on('pageerror', (e) => log(`pageerror: ${e.message}`));
+        p.on('requestfailed', (r) => log(`requestfailed ${r.url()} ${r.failure()?.errorText}`));
+        p.on('websocket', (ws) => {
+          log(`ws open ${ws.url()}`);
+          ws.on('close', () => log('ws closed'));
+          ws.on('framereceived', (f) => typeof f.payload === 'string' && log(`ws <- ${f.payload}`));
+          ws.on('framesent', (f) => typeof f.payload === 'string' && log(`ws -> ${f.payload}`));
+        });
+      });
+    }
     return c;
   };
 

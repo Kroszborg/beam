@@ -42,6 +42,17 @@ export interface FileReceiverCallbacks {
 }
 
 const TAG_BYTES = GCM_TAG_BITS / 8;
+/** Re-send `hello` if the manifest hasn't arrived after this long. */
+export const HELLO_RETRY_MS = 8_000;
+/** Re-request missing chunks after this long with nothing arriving or pending. */
+export const STALL_RETRY_MS = 15_000;
+const WATCHDOG_TICK_MS = 2_000;
+
+export interface WatchdogTiming {
+  helloRetryMs: number;
+  stallRetryMs: number;
+  tickMs: number;
+}
 
 export class FileReceiver {
   private transport: Transport | null = null;
@@ -58,11 +69,22 @@ export class FileReceiver {
   private queue: Promise<void> = Promise.resolve();
   private finished = false;
   private failed = false;
+  /** Queue tasks not yet settled (chunks being decrypted/written). */
+  private pending = 0;
+  /** Last time a frame arrived or a write completed. */
+  private lastActivity = 0;
+  private lastHello = 0;
+  private watchdog: ReturnType<typeof setInterval> | null = null;
+
+  private readonly timing: WatchdogTiming;
 
   constructor(
     private readonly key: CryptoKey,
     private readonly cb: FileReceiverCallbacks = {},
-  ) {}
+    timing: Partial<WatchdogTiming> = {},
+  ) {
+    this.timing = { helloRetryMs: HELLO_RETRY_MS, stallRetryMs: STALL_RETRY_MS, tickMs: WATCHDOG_TICK_MS, ...timing };
+  }
 
   get selectedFiles(): SinkFile[] {
     if (!this.manifest || !this.wanted) return [];
@@ -78,10 +100,43 @@ export class FileReceiver {
     if (!this.finished) this.cb.onState?.(this.sink ? 'receiving' : 'connected');
     transport.onMessage((data) => {
       if (this.failed || transport !== this.transport) return;
+      this.lastActivity = Date.now();
       if (typeof data === 'string') this.onControl(data);
       else this.onFrame(data);
     });
+    this.lastActivity = Date.now();
+    this.sayHello();
+    this.watchdog ??= setInterval(() => this.checkStall(), this.timing.tickMs);
+  }
+
+  private sayHello(): void {
+    this.lastHello = Date.now();
     this.send({ type: 'hello', v: PROTOCOL_VERSION });
+  }
+
+  /**
+   * Recover from a lost message on a channel that still looks open: no
+   * manifest yet → say hello again; receiving but nothing arriving and nothing
+   * waiting on the disk → ask again for what's missing. Both are idempotent
+   * on the sender (duplicate chunks are acked without being written).
+   */
+  private checkStall(): void {
+    if (this.finished || this.failed) return this.stopWatchdog();
+    if (this.transport?.readyState !== 'open') return;
+    const now = Date.now();
+    if (!this.manifest) {
+      if (now - this.lastHello >= this.timing.helloRetryMs) this.sayHello();
+      return;
+    }
+    if (this.sink && this.pending === 0 && now - this.lastActivity >= this.timing.stallRetryMs) {
+      this.lastActivity = now;
+      this.enqueue(() => this.request());
+    }
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdog) clearInterval(this.watchdog);
+    this.watchdog = null;
   }
 
   /**
@@ -115,6 +170,7 @@ export class FileReceiver {
   /** Stop and discard (user cancelled). */
   async cancel(): Promise<void> {
     this.failed = true;
+    this.stopWatchdog();
     this.send({ type: 'request', transferId: this.manifest?.transferId ?? '', ranges: [], wantBytes: 0, haveBytes: 0 });
     await this.sink?.abort();
   }
@@ -200,6 +256,7 @@ export class FileReceiver {
       return this.fail((err as Error)?.message || 'Could not write to disk.');
     }
     this.received.add(index);
+    this.lastActivity = Date.now();
     this.progress?.recordChunk(target.length);
     this.emitProgress();
     this.send({ type: 'ack', count: 1 });
@@ -230,6 +287,7 @@ export class FileReceiver {
       this.finished = false;
       return this.fail((err as Error)?.message || 'Could not finish writing files.');
     }
+    this.stopWatchdog();
     this.send({ type: 'transfer-complete', transferId: this.manifest.transferId });
     this.cb.onState?.('complete');
     this.cb.onComplete?.(files);
@@ -238,6 +296,7 @@ export class FileReceiver {
   private async fail(message: string, tellPeer = true): Promise<void> {
     if (this.failed) return;
     this.failed = true;
+    this.stopWatchdog();
     if (tellPeer) this.send({ type: 'error', code: 'verification-failed', message });
     await this.sink?.abort().catch(() => {});
     this.cb.onError?.(message);
@@ -245,9 +304,15 @@ export class FileReceiver {
   }
 
   private enqueue(task: () => Promise<void>): void {
-    this.queue = this.queue.then(() => (this.failed ? undefined : task())).catch((err) => {
-      void this.fail((err as Error)?.message || 'Transfer failed.');
-    });
+    this.pending += 1;
+    this.queue = this.queue
+      .then(() => (this.failed ? undefined : task()))
+      .catch((err) => {
+        void this.fail((err as Error)?.message || 'Transfer failed.');
+      })
+      .finally(() => {
+        this.pending -= 1;
+      });
   }
 
   private send(msg: ControlMessage): void {

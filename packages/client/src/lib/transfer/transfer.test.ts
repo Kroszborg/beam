@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { CHUNK_SIZE, RECEIVE_WINDOW_CHUNKS, FRAME_KIND_CHUNK, type Manifest } from '@beam/shared';
 import { generateSessionKey, generateBaseNonce } from '../crypto/index.js';
 import { FileSender } from './fileSender.js';
-import { FileReceiver, toRanges } from './fileReceiver.js';
+import { FileReceiver, toRanges, type WatchdogTiming } from './fileReceiver.js';
 import { TransferLayout } from './layout.js';
 import { sealManifest, openManifest, validateManifest, ManifestError } from './manifest.js';
 import { MemorySink, makePair, bytes } from '../testing/fakes.js';
@@ -23,7 +23,7 @@ function makeFiles(): File[] {
   ];
 }
 
-async function setup(files = makeFiles()) {
+async function setup(files = makeFiles(), timing: Partial<WatchdogTiming> = {}) {
   const key = await generateSessionKey();
   const sender = new FileSender(files, key, generateBaseNonce());
   let manifest: Manifest | null = null;
@@ -35,7 +35,7 @@ async function setup(files = makeFiles()) {
     onState: (s) => states.push(s),
     onError: (e) => errors.push(e),
     onComplete: () => (completed = true),
-  });
+  }, timing);
   const connect = () => {
     const [a, b] = makePair();
     const upload = sender.serve(a, {});
@@ -145,6 +145,33 @@ describe('transfer protocol v2', () => {
     clearInterval(watcher);
     expect(maxAhead).toBeLessThanOrEqual(RECEIVE_WINDOW_CHUNKS);
     expect(sink.maxPending).toBe(1); // writes are strictly serial
+  });
+
+  it('says hello again when the first one is lost', async () => {
+    const t = await setup(undefined, { helloRetryMs: 50, tickMs: 10 });
+    const [a, b] = makePair();
+    let hellos = 0;
+    b.drop = (d) => typeof d === 'string' && d.includes('"hello"') && ++hellos === 1;
+    t.sender.serve(a, {});
+    t.receiver.attach(b);
+    await t.until(() => t.manifest() !== null);
+    expect(hellos).toBeGreaterThanOrEqual(2);
+  });
+
+  it('re-requests when a request is lost and nothing arrives', async () => {
+    const t = await setup([new File([bytes(3 * MB, 5)], 'stall.bin')], { stallRetryMs: 80, tickMs: 10 });
+    const [a, b] = makePair();
+    let requests = 0;
+    b.drop = (d) => typeof d === 'string' && d.includes('"request"') && ++requests === 1;
+    t.sender.serve(a, {});
+    t.receiver.attach(b);
+    await t.until(() => t.manifest() !== null);
+    const sink = sinkFor(t.manifest()!, [0]);
+    await t.receiver.accept([0], sink);
+    await t.until(t.completed);
+    expect(requests).toBe(2);
+    expect(same(sink.data.get(0), (await contents(t.files))[0]!)).toBe(true);
+    expect(t.errors).toEqual([]);
   });
 
   it('rejects a tampered chunk', async () => {

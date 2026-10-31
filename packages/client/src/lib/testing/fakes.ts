@@ -20,6 +20,8 @@ export class PairedTransport implements Transport {
   tamper: ((frame: Uint8Array) => void) | null = null;
   /** Observe every outgoing message. */
   tap: ((data: ChannelData) => void) | null = null;
+  /** Silently lose outgoing messages for which this returns true. */
+  drop: ((data: ChannelData) => boolean) | null = null;
   private handler: ((d: ChannelData) => void) | null = null;
   private readonly closeHandlers: (() => void)[] = [];
 
@@ -44,6 +46,7 @@ export class PairedTransport implements Transport {
       payload = copy.buffer;
     }
     this.tap?.(payload);
+    if (this.drop?.(payload)) return;
     queueMicrotask(() => {
       if (this.peer.readyState === 'open') this.peer.handler?.(payload);
     });

@@ -209,7 +209,7 @@ export class Upload {
         const ciphertext = await ahead.shift()!;
         fill();
         this.check(gen);
-        await this.sendMessage(FRAME_KIND_CHUNK, index, ciphertext, gen);
+        await this.sendMessage(FRAME_KIND_CHUNK, index, ciphertext);
         this.sent += 1;
         this.inflight.push(this.sender.layout.target(index).length);
       }
@@ -219,11 +219,15 @@ export class Upload {
     }
   }
 
-  private async sendMessage(kind: number, index: number, payload: Uint8Array, gen?: number): Promise<void> {
+  /**
+   * Send one message as frames. Never abandoned half-way (only the channel
+   * closing stops it): a re-request that restarts at the same chunk would
+   * otherwise have its frames appended to the receiver's partial copy.
+   */
+  private async sendMessage(kind: number, index: number, payload: Uint8Array): Promise<void> {
     const t = this.transport;
     for (const frame of frames(kind, index, payload, this.frameSize)) {
-      while (t.bufferedAmount > SEND_BUFFER_HIGH) {
-        if (gen !== undefined) this.check(gen);
+      while (t.bufferedAmount > SEND_BUFFER_HIGH && t.readyState === 'open') {
         await t.drained();
       }
       if (t.readyState !== 'open') throw new ChannelClosed();
