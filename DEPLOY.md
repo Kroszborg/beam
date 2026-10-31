@@ -166,7 +166,7 @@ After=network.target redis-server.service
 [Service]
 WorkingDirectory=/opt/beam
 EnvironmentFile=/opt/beam/.env
-# Path to tsx — confirm with: find /opt/beam -path '*/node_modules/.bin/tsx'
+# tsx is a server dependency, so this path is stable across installs.
 ExecStart=/opt/beam/packages/server/node_modules/.bin/tsx /opt/beam/packages/server/src/index.ts
 Restart=always
 RestartSec=3
@@ -259,8 +259,10 @@ this step is mandatory for production.
 
 ### Security headers (recommended)
 
-Add these inside the `server { ... }` block (the `:443` one certbot created) and
-`sudo systemctl reload nginx`:
+nginx drops server-level `add_header`s in any `location` that sets its own (the
+cache headers above do), so put the security headers in a snippet and include
+it at server level *and* in each of those locations. Create
+`/etc/nginx/snippets/beam-security-headers.conf`:
 
 ```nginx
 add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
@@ -271,6 +273,12 @@ add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
 # Same policy the bundled server sends when it serves the app (STATIC_DIR):
 add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; frame-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" always;
 ```
+
+Then add `include snippets/beam-security-headers.conf;` inside the `:443`
+`server { ... }` block and inside the `location /`, `location = /sw.js` and
+`location /assets/` blocks (add `add_header Cache-Control "no-cache";` to
+`location /` too, so a deploy is picked up immediately), and
+`sudo nginx -t && sudo systemctl reload nginx`.
 
 ---
 
@@ -293,6 +301,14 @@ VITE_SIGNALING_URL=https://beam.kroszborg.co pnpm --filter @beam/client build
 sudo cp -r packages/client/dist/* /var/www/beam/
 sudo systemctl restart beam-server
 ```
+
+> **Small boxes (≤1 GB RAM, no swap):** build the client on your own machine
+> instead — `VITE_SIGNALING_URL=https://beam.kroszborg.co pnpm --filter
+> @beam/client build`, then `scp` the contents of `packages/client/dist` to
+> `/var/www/beam/` — and only run `pnpm install` + the restart on the box.
+>
+> If `pnpm install` stops with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`
+> (node_modules came from a different pnpm version), rerun it with `CI=true`.
 
 > **Upgrading a box set up before protocol v2:** also add the `/sw.js` and
 > `/assets/` blocks and the `/ws` timeouts from §6 to the nginx config, then
