@@ -63,6 +63,8 @@ interface Peer {
   /** Sliding-window counter for control messages (relay frames are exempt). */
   windowStart: number;
   msgCount: number;
+  /** Timestamps of recent short-code lookups (anti-enumeration). */
+  lookups: number[];
 }
 
 /** Generous cap: legitimate ICE trickle bursts, but spam gets cut off. */
@@ -72,6 +74,17 @@ const RATE_MAX_MESSAGES = 300;
 const TOUCH_INTERVAL_MS = 30_000;
 /** Ping every socket this often; one missed pong closes it. */
 const HEARTBEAT_MS = 30_000;
+/** Short-code lookups allowed per connection per minute. */
+const LOOKUPS_PER_MINUTE = 10;
+/** A nameplate outlives idle periods; resolve() also checks the room exists. */
+const CODE_TTL_SECONDS = 24 * 3600;
+/** Try short nameplates first, longer ones only when those are busy. */
+const NAMEPLATE_RANGES: [number, number][] = [
+  [1, 99],
+  [100, 999],
+  [1000, 9999],
+  [10000, 99999],
+];
 
 export interface HubOptions {
   relayEnabled: boolean;
@@ -84,6 +97,8 @@ export class SignalingHub {
   /** roomId -> (peerId -> socket) for peers connected to THIS instance. */
   private readonly localRooms = new Map<string, Map<string, WebSocket>>();
   private readonly lastTouch = new Map<string, number>();
+  /** roomId -> its short-code nameplate, for rooms owned on THIS instance. */
+  private readonly roomCodes = new Map<string, string>();
   private readonly alive = new WeakMap<WebSocket, boolean>();
   private readonly sockets = new Set<WebSocket>();
   private readonly heartbeat: ReturnType<typeof setInterval>;
@@ -137,6 +152,7 @@ export class SignalingHub {
       ownerId: null,
       windowStart: Date.now(),
       msgCount: 0,
+      lookups: [],
     };
 
     this.sockets.add(socket);
@@ -195,6 +211,10 @@ export class SignalingHub {
           return await this.onRejoinRoom(peer, msg);
         case 'signal':
           return await this.onSignal(peer, msg.roomId, msg.to, msg.data);
+        case 'create-code':
+          return await this.onCreateCode(peer);
+        case 'resolve-code':
+          return await this.onResolveCode(peer, String(msg.nameplate));
         default:
           return this.sendError(peer, 'invalid-message', 'Unknown message type.');
       }
@@ -293,6 +313,47 @@ export class SignalingHub {
     }
   }
 
+  /** Give the sender's room a short numeric nameplate (idempotent per room). */
+  private async onCreateCode(peer: Peer): Promise<void> {
+    if (peer.role !== 'sender' || !peer.roomId) {
+      return this.sendError(peer, 'invalid-message', 'Only a sender can create a code.');
+    }
+    const roomId = peer.roomId;
+    const existing = this.roomCodes.get(roomId);
+    if (existing && (await this.backend.resolveCode(existing)) === roomId) {
+      return this.send(peer.socket, { type: 'code-created', nameplate: existing });
+    }
+    for (const [lo, hi] of NAMEPLATE_RANGES) {
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const nameplate = String(lo + Math.floor(Math.random() * (hi - lo + 1)));
+        if (await this.backend.claimCode(nameplate, roomId, CODE_TTL_SECONDS)) {
+          this.roomCodes.set(roomId, nameplate);
+          return this.send(peer.socket, { type: 'code-created', nameplate });
+        }
+      }
+    }
+    return this.sendError(peer, 'internal-error', 'No short codes available right now.');
+  }
+
+  /**
+   * Nameplate → room id. Rate-limited per connection; the code's secret words
+   * are checked by the PAKE between the browsers, never here.
+   */
+  private async onResolveCode(peer: Peer, nameplate: string): Promise<void> {
+    const now = Date.now();
+    peer.lookups = peer.lookups.filter((t) => now - t < 60_000);
+    if (peer.lookups.length >= LOOKUPS_PER_MINUTE) {
+      return this.sendError(peer, 'rate-limited', 'Too many code lookups. Wait a minute and try again.');
+    }
+    peer.lookups.push(now);
+    const notFound = () =>
+      this.sendError(peer, 'code-not-found', 'No transfer with that code. Check the number and try again.');
+    if (!/^\d{1,5}$/.test(nameplate)) return notFound();
+    const roomId = await this.backend.resolveCode(nameplate);
+    if (!roomId || !(await this.backend.getRoom(roomId))) return notFound();
+    this.send(peer.socket, { type: 'code-resolved', nameplate, roomId });
+  }
+
   private async onSignal(
     peer: Peer,
     roomId: string,
@@ -361,7 +422,15 @@ export class SignalingHub {
 
     this.detachLocal(roomId, peer);
     const room = await this.backend.removeMember(roomId, peer.peerId);
-    if (!room || room.members.length === 0) return;
+    if (!room || room.members.length === 0) {
+      // Room is gone: free its nameplate for someone else.
+      const nameplate = this.roomCodes.get(roomId);
+      if (nameplate) {
+        this.roomCodes.delete(roomId);
+        if ((await this.backend.resolveCode(nameplate)) === roomId) await this.backend.releaseCode(nameplate);
+      }
+      return;
+    }
 
     if (peer.role === 'receiver') {
       await this.publish(roomId, {

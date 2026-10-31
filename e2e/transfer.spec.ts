@@ -90,7 +90,8 @@ async function openSender(ctx: BrowserContext, paths: string[], query = ''): Pro
 
 type Sink = 'stream' | 'fs' | 'idb';
 
-async function openReceiver(ctx: BrowserContext, url: string, sink: Sink): Promise<Page> {
+/** Receive via the link, or — with `code` — by typing the short code on /receive. */
+async function openReceiver(ctx: BrowserContext, url: string, sink: Sink, code?: string): Promise<Page> {
   const page = await ctx.newPage();
   if (sink === 'fs') {
     // Native pickers can't be automated: hand back handles in the origin
@@ -108,9 +109,15 @@ async function openReceiver(ctx: BrowserContext, url: string, sink: Sink): Promi
       delete w.showDirectoryPicker;
     });
   }
-  const u = new URL(url);
-  if (sink === 'idb') u.search = '?sink=idb';
-  await page.goto(u.toString());
+  if (code) {
+    await page.goto(`/receive${sink === 'idb' ? '?sink=idb' : ''}`);
+    await page.getByTestId('code-input').fill(code.replace(/-/g, ' '));
+    await page.getByRole('button', { name: /receive files/i }).click();
+  } else {
+    const u = new URL(url);
+    if (sink === 'idb') u.search = '?sink=idb';
+    await page.goto(u.toString());
+  }
   await expect(page.locator('[data-testid=offered-file]').first()).toBeVisible({ timeout: 30_000 });
   return page;
 }
@@ -133,6 +140,8 @@ interface RunOptions {
   receivers?: number;
   senderQuery?: string;
   expectRoute?: string;
+  /** Receivers type the short code instead of opening the link. */
+  viaCode?: boolean;
 }
 
 async function transfer(browser: Browser, files: Spec[], opts: RunOptions): Promise<number> {
@@ -165,8 +174,14 @@ async function transfer(browser: Browser, files: Spec[], opts: RunOptions): Prom
 
   try {
     const { page: sender, url } = await openSender(await ctx(), paths, opts.senderQuery ?? '');
+    let code: string | undefined;
+    if (opts.viaCode) {
+      await sender.getByTestId('make-code').click();
+      code = (await sender.getByTestId('short-code').textContent())!.trim();
+      expect(code).toMatch(/^\d+-[a-z]+-[a-z]+$/);
+    }
     const receivers = await Promise.all(
-      Array.from({ length: opts.receivers ?? 1 }, async () => openReceiver(await ctx(), url, opts.sink)),
+      Array.from({ length: opts.receivers ?? 1 }, async () => openReceiver(await ctx(), url, opts.sink, code)),
     );
 
     // Chromium exposes JS heap size; sample it to prove memory stays flat.
@@ -267,6 +282,32 @@ test('IndexedDB fallback', async ({ browser }) => {
 
 test('two receivers on one link', async ({ browser }) => {
   await transfer(browser, [{ name: 'shared.bin', mb: 40 }], { sink: 'stream', receivers: 2 });
+});
+
+test('short code instead of a link (PAKE)', async ({ browser }) => {
+  await transfer(browser, [{ name: 'coded.bin', mb: 3 }], { sink: 'stream', viaCode: true });
+});
+
+test('a wrong short code is refused', async ({ browser }) => {
+  const sctx = await browser.newContext();
+  const rctx = await browser.newContext();
+  try {
+    const path = await makeFile('nope.bin', 0.1, 99);
+    const { page: sender } = await openSender(sctx, [path]);
+    await sender.getByTestId('make-code').click();
+    const code = (await sender.getByTestId('short-code').textContent())!.trim();
+    const [n, a, b] = code.split('-');
+    const rx = await rctx.newPage();
+    await rx.goto('/receive');
+    await rx.getByTestId('code-input').fill(`${n}-${a}-${b === 'tiger' ? 'zebra' : 'tiger'}`);
+    await rx.getByRole('button', { name: /receive files/i }).click();
+    await expect(rx.getByText(/doesn't match/)).toBeVisible({ timeout: 20_000 });
+    await expect(sender.getByText(/2 more wrong tries/)).toBeVisible();
+    await expect(sender.locator('[data-testid=receiver]')).toHaveCount(0);
+  } finally {
+    await sctx.close();
+    await rctx.close();
+  }
 });
 
 test('server relay fallback', async ({ browser }) => {

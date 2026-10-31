@@ -44,6 +44,16 @@ export interface RoomInfo {
   ownerId: string;
 }
 
+/** A server error, with its machine-readable code. */
+export class SignalingError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -60,6 +70,8 @@ export class SignalingClient {
     resolve: (info: RoomInfo & { token: string }) => void;
     reject: (err: Error) => void;
   } | null = null;
+  /** One-shot resolver for an in-flight create-code / resolve-code. */
+  private codePending: { resolve: (value: string) => void; reject: (err: Error) => void } | null = null;
 
   constructor(private readonly url: string) {}
 
@@ -178,10 +190,20 @@ export class SignalingClient {
       case 'signal':
         this.emitter.emit('signal', { from: msg.from, data: msg.data });
         break;
+      case 'code-created':
+        this.codePending?.resolve(msg.nameplate);
+        this.codePending = null;
+        break;
+      case 'code-resolved':
+        this.codePending?.resolve(msg.roomId);
+        this.codePending = null;
+        break;
       case 'error':
-        // Fail an in-flight create/join so callers don't hang forever.
-        this.pending?.reject(new Error(msg.message));
+        // Fail in-flight requests so callers don't hang forever.
+        this.pending?.reject(new SignalingError(msg.code, msg.message));
         this.pending = null;
+        this.codePending?.reject(new SignalingError(msg.code, msg.message));
+        this.codePending = null;
         this.emitter.emit('error', { code: msg.code, message: msg.message });
         break;
     }
@@ -226,6 +248,23 @@ export class SignalingClient {
   /** Join an existing room as a receiver; rejects if it's missing or full. */
   joinRoom(roomId: string): Promise<RoomInfo> {
     return this.request({ type: 'join-room', roomId });
+  }
+
+  private codeRequest(message: ClientToServerMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+      this.codePending = { resolve, reject };
+      this.send(message);
+    });
+  }
+
+  /** Get a short-code nameplate for this sender's room. */
+  createCode(): Promise<string> {
+    return this.codeRequest({ type: 'create-code' });
+  }
+
+  /** Look up the room id behind a nameplate. Rejects with code `code-not-found`. */
+  resolveCode(nameplate: string): Promise<string> {
+    return this.codeRequest({ type: 'resolve-code', nameplate });
   }
 
   /** Route an SDP/ICE/relay payload. Receivers omit `to` (it goes to the sender). */

@@ -1,11 +1,11 @@
 /**
- * React binding for ReceiverSession. Auto-starts from the room id (route param)
- * and the key in the URL fragment, so scanning a QR / opening the link begins
- * the handshake immediately.
+ * React binding for ReceiverSession. Starts as soon as it has a target — a
+ * link (room id + key fragment) or a typed short code — so scanning a QR or
+ * opening the link begins the handshake immediately.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Manifest } from '@beam/shared';
-import { ReceiverSession } from '@/lib/session/receiverSession';
+import { ReceiverSession, type ReceiveTarget } from '@/lib/session/receiverSession';
 import { prepareSinks } from '@/lib/transfer';
 import type {
   CompletedFile,
@@ -29,7 +29,7 @@ export interface UseReceiver {
   cancel: () => void;
 }
 
-export function useReceiverSession(roomId: string | undefined, keyFragment: string): UseReceiver {
+export function useReceiverSession(target: ReceiveTarget | null): UseReceiver {
   const sessionRef = useRef<ReceiverSession | null>(null);
   const [state, setState] = useState<ReceiverState>('idle');
   const [manifest, setManifest] = useState<Manifest | null>(null);
@@ -39,13 +39,12 @@ export function useReceiverSession(roomId: string | undefined, keyFragment: stri
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Stable identity for the effect: one session per distinct target.
+  const targetKey = target ? JSON.stringify(target) : '';
+
   useEffect(() => {
-    if (!roomId) {
-      setError('Missing room code.');
-      setState('error');
-      return;
-    }
-    if (!keyFragment) {
+    if (!target) return;
+    if ('keyFragment' in target && !target.keyFragment) {
       setError('This link is missing its decryption key.');
       setState('error');
       return;
@@ -62,7 +61,7 @@ export function useReceiverSession(roomId: string | undefined, keyFragment: stri
     session.on('complete', setFiles);
     session.on('waiting', setWaiting);
     session.on('error', setError);
-    void session.start(roomId, keyFragment).catch((e: Error) => {
+    void session.start(target).catch((e: Error) => {
       setError(e.message);
       setState('error');
     });
@@ -71,7 +70,8 @@ export function useReceiverSession(roomId: string | undefined, keyFragment: stri
       session.close();
       sessionRef.current = null;
     };
-  }, [roomId, keyFragment]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by targetKey
+  }, [targetKey]);
 
   const accept = useCallback(async (fileIndices: number[], sink: SinkKind) => {
     await sessionRef.current?.accept(fileIndices, sink);

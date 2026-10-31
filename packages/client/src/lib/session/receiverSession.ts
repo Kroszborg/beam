@@ -1,8 +1,11 @@
 /**
  * ReceiverSession — the receiving-side controller.
  *
- * Imports the key from the URL fragment, joins the room, and keeps a
- * PeerConnection ready to *answer* the sender's offer. If the sender switches
+ * Starts from a link (key in the URL fragment) or a short code. With a link
+ * it proves it holds the key; with a code it runs CPace with the sender and
+ * receives the transfer key wrapped under the PAKE key. Meanwhile it keeps a
+ * PeerConnection ready to *answer* the sender's offer, which comes once the
+ * sender has admitted us. If the sender switches
  * this receiver to the relay, a RelayTransport replaces WebRTC. Either way the
  * FileReceiver is re-attached to each new channel and resumes from its gap.
  *
@@ -10,8 +13,19 @@
  * arrives — `accept()` must be called from that click, because saving straight
  * to disk opens a native picker that requires user activation.
  */
-import type { Manifest } from '@beam/shared';
-import { importKeyFromFragment } from '../crypto/index.js';
+import type { Manifest, SignalPayload } from '@beam/shared';
+import {
+  Cpace,
+  PakeError,
+  pakeSid,
+  authProof,
+  unwrapTransferKey,
+  importRawKey,
+  base64UrlToBytes,
+  bytesToBase64Url,
+  type PakeKeys,
+} from '../crypto/index.js';
+import { parseCode, MAX_CODE_ATTEMPTS } from '../codes.js';
 import { SignalingClient } from '../signaling/signalingClient.js';
 import {
   PeerConnection,
@@ -45,6 +59,16 @@ type ReceiverSessionEvents = {
 /** How long to wait for any channel before surfacing an error. */
 const CONNECT_TIMEOUT_MS = 40_000;
 
+/** What the receiver starts from: a share link, or a typed short code. */
+export type ReceiveTarget = { roomId: string; keyFragment: string } | { code: string };
+
+const DENIED: Record<string, string> = {
+  unauthorized:
+    "The sender couldn't verify this link. Make sure you copied all of it, including everything after the #.",
+  'wrong-code': `That code doesn't match. Check the words and try again — after ${MAX_CODE_ATTEMPTS} wrong tries it stops working.`,
+  'code-disabled': 'This code stopped working after too many wrong tries. Ask the sender for a new one.',
+};
+
 export class ReceiverSession {
   private readonly emitter = new Emitter<ReceiverSessionEvents>();
   private signaling: SignalingClient | null = null;
@@ -57,6 +81,10 @@ export class ReceiverSession {
   private manifest: Manifest | null = null;
   private state: ReceiverState = 'idle';
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A channel that opened before we had the key (code flow). */
+  private pendingTransport: Transport | null = null;
+  private pake: Cpace | null = null;
+  private pakeKeys: PakeKeys | null = null;
   /** Set by close(); start() checks it after every await so a session torn
    *  down mid-start (e.g. React StrictMode remount) never joins the room. */
   private closed = false;
@@ -73,16 +101,109 @@ export class ReceiverSession {
     this.emitter.emit('state', state);
   }
 
-  async start(roomId: string, keyFragment: string): Promise<void> {
+  async start(target: ReceiveTarget): Promise<void> {
     this.setState('joining');
 
-    let key: CryptoKey;
-    try {
-      key = await importKeyFromFragment(keyFragment);
-    } catch {
-      return this.fail('This link is missing its key or the key is invalid.');
+    let rawKey: Uint8Array | null = null;
+    let password: string | null = null;
+    let nameplate: string | null = null;
+    if ('keyFragment' in target) {
+      try {
+        rawKey = base64UrlToBytes(target.keyFragment);
+      } catch {
+        rawKey = null;
+      }
+      if (!rawKey || rawKey.length !== 32) return this.fail('This link is missing its key or the key is invalid.');
+    } else {
+      const parsed = parseCode(target.code);
+      if (!parsed) {
+        return this.fail("That isn't a Beam code. It's a number and two words, like 42-tiger-ocean.");
+      }
+      password = parsed.password;
+      nameplate = parsed.nameplate;
     }
 
+    const ice = await (this.deps.fetchIce ?? fetchIceConfig)(this.signalingUrl);
+    this.iceServers = ice.iceServers;
+    if (this.closed) return;
+    const signaling = this.deps.createSignaling
+      ? this.deps.createSignaling(this.signalingUrl)
+      : new SignalingClient(this.signalingUrl);
+    this.signaling = signaling;
+    let roomId: string;
+    let selfId: string;
+    try {
+      await signaling.connect();
+      if (this.closed) return signaling.close();
+      roomId = 'roomId' in target ? target.roomId : await signaling.resolveCode(nameplate!);
+      if (this.closed) return signaling.close();
+      const room = await signaling.joinRoom(roomId);
+      if (this.closed) return signaling.close();
+      this.ownerId = room.ownerId;
+      selfId = room.peerId;
+    } catch (err) {
+      return this.fail((err as Error).message);
+    }
+
+    this.setState('connecting');
+    this.createPeer();
+
+    signaling.on('signal', ({ from, data }) => {
+      if (from !== this.ownerId) return;
+      void this.onOwnerSignal(data).catch((err: Error) =>
+        this.fail(err instanceof PakeError ? DENIED['wrong-code']! : err.message),
+      );
+    });
+
+    // The sender's socket dropped. Its WebRTC link to us may well be fine, so
+    // only note it; if the link is down too, the sender will re-offer when back.
+    signaling.on('peer-left', ({ peerId }) => {
+      if (peerId !== this.ownerId) return;
+      if (this.transport?.readyState !== 'open') this.emitter.emit('waiting', true);
+    });
+
+    if (rawKey) {
+      await this.useKey(rawKey);
+      signaling.sendSignal({ kind: 'auth', proof: authProof(rawKey, roomId, selfId) });
+    } else {
+      this.pake = new Cpace(password!, pakeSid(roomId, this.ownerId!, selfId), 'receiver');
+      signaling.sendSignal({ kind: 'pake', step: 1, share: bytesToBase64Url(this.pake.share) });
+    }
+
+    this.connectTimer = setTimeout(() => {
+      if (!this.transport && this.state === 'connecting') {
+        this.fail(
+          "Couldn't connect to the sender. They may have closed the tab or be on a restrictive network — ask them to reopen the page and try again.",
+        );
+      }
+    }, CONNECT_TIMEOUT_MS);
+  }
+
+  private async onOwnerSignal(data: SignalPayload): Promise<void> {
+    switch (data.kind) {
+      case 'relay':
+        return this.useRelay();
+      case 'denied':
+        return this.fail(DENIED[data.reason] ?? DENIED.unauthorized!);
+      case 'pake':
+        if (data.step !== 2 || !this.pake) return;
+        this.pakeKeys = this.pake.finish(base64UrlToBytes(data.share));
+        this.pake = null;
+        this.signaling?.sendSignal({ kind: 'pake', step: 3, confirm: bytesToBase64Url(this.pakeKeys.receiverConfirm) });
+        return;
+      case 'key': {
+        if (!this.pakeKeys || this.receiver) return;
+        const raw = await unwrapTransferKey(this.pakeKeys.wrapKey, data.wrapped);
+        this.pakeKeys = null;
+        return this.useKey(raw);
+      }
+    }
+  }
+
+  /** We have the transfer key: set up the receiver (and any channel that beat us to it). */
+  private async useKey(raw: Uint8Array): Promise<void> {
+    const key = await importRawKey(raw);
+    if (this.closed) return;
     this.receiver = new FileReceiver(key, {
       onState: (s) => this.setState(s),
       onManifest: (m) => {
@@ -96,45 +217,9 @@ export class ReceiverSession {
       },
       onError: (m) => this.emitter.emit('error', m),
     });
-
-    const ice = await (this.deps.fetchIce ?? fetchIceConfig)(this.signalingUrl);
-    this.iceServers = ice.iceServers;
-    if (this.closed) return;
-    const signaling = this.deps.createSignaling
-      ? this.deps.createSignaling(this.signalingUrl)
-      : new SignalingClient(this.signalingUrl);
-    this.signaling = signaling;
-    try {
-      await signaling.connect();
-      if (this.closed) return signaling.close();
-      const room = await signaling.joinRoom(roomId);
-      if (this.closed) return signaling.close();
-      this.ownerId = room.ownerId;
-    } catch (err) {
-      return this.fail((err as Error).message);
-    }
-
-    this.setState('connecting');
-    this.createPeer();
-
-    signaling.on('signal', ({ from, data }) => {
-      if (from === this.ownerId && data.kind === 'relay') this.useRelay();
-    });
-
-    // The sender's socket dropped. Its WebRTC link to us may well be fine, so
-    // only note it; if the link is down too, the sender will re-offer when back.
-    signaling.on('peer-left', ({ peerId }) => {
-      if (peerId !== this.ownerId) return;
-      if (this.transport?.readyState !== 'open') this.emitter.emit('waiting', true);
-    });
-
-    this.connectTimer = setTimeout(() => {
-      if (!this.transport && this.state === 'connecting') {
-        this.fail(
-          "Couldn't connect to the sender. They may have closed the tab or be on a restrictive network — ask them to reopen the page and try again.",
-        );
-      }
-    }, CONNECT_TIMEOUT_MS);
+    const early = this.pendingTransport;
+    this.pendingTransport = null;
+    if (early && early === this.transport) this.receiver.attach(early);
   }
 
   /**
@@ -201,7 +286,8 @@ export class ReceiverSession {
       // Ready for the sender's next offer (or relay signal).
       this.createPeer();
     });
-    this.receiver!.attach(transport);
+    if (this.receiver) this.receiver.attach(transport);
+    else this.pendingTransport = transport;
   }
 
   private isDone(): boolean {

@@ -16,6 +16,7 @@ interface Entry {
 
 export class MemoryBackend implements RoomBackend {
   private readonly rooms = new Map<string, Entry>();
+  private readonly codes = new Map<string, { roomId: string; expiresAt: number }>();
   private readonly listeners = new Set<(channel: string, payload: Buffer) => void>();
   private readonly subscribed = new Set<string>();
   private readonly sweeper: ReturnType<typeof setInterval>;
@@ -41,6 +42,7 @@ export class MemoryBackend implements RoomBackend {
   private sweep(): void {
     const now = Date.now();
     for (const [id, e] of this.rooms) if (e.expiresAt <= now) this.rooms.delete(id);
+    for (const [n, c] of this.codes) if (c.expiresAt <= now) this.codes.delete(n);
   }
 
   private expiry(): number {
@@ -78,6 +80,23 @@ export class MemoryBackend implements RoomBackend {
   async touch(roomId: string): Promise<void> {
     const e = this.live(roomId);
     if (e) e.expiresAt = this.expiry();
+  }
+
+  async claimCode(nameplate: string, roomId: string, ttlSeconds: number): Promise<boolean> {
+    const existing = this.codes.get(nameplate);
+    if (existing && existing.expiresAt > Date.now()) return false;
+    this.codes.set(nameplate, { roomId, expiresAt: Date.now() + ttlSeconds * 1000 });
+    return true;
+  }
+
+  async resolveCode(nameplate: string): Promise<string | null> {
+    const c = this.codes.get(nameplate);
+    if (!c || c.expiresAt <= Date.now()) return null;
+    return c.roomId;
+  }
+
+  async releaseCode(nameplate: string): Promise<void> {
+    this.codes.delete(nameplate);
   }
 
   async publish(channel: string, payload: Buffer): Promise<void> {

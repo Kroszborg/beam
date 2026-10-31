@@ -108,12 +108,12 @@ export function HomePage() {
                 <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-1" />
               </Link>
             </Button>
-            <a
-              href="#how"
+            <Link
+              to="/receive"
               className="link-ul text-sm text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
             >
-              How it works
-            </a>
+              Have a code? Receive
+            </Link>
           </motion.div>
         </div>
       </section>

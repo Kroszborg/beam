@@ -4,6 +4,7 @@ import { Brand } from './Brand';
 import { DEV_INFO } from '@/config/dev';
 
 const NAV = [
+  { href: '/receive', label: 'Receive' },
   { href: '/#how', label: 'How it works' },
   { href: '/#faq', label: 'FAQ' },
   { href: '/#about', label: 'About' },
@@ -21,7 +22,9 @@ export function PageShell({ children, narrow = false }: { children: ReactNode; n
               <a
                 key={item.href}
                 href={item.href}
-                className="link-ul hidden text-sm text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)] sm:inline-block"
+                className={`link-ul text-sm text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)] ${
+                  item.href === '/receive' ? 'inline-block' : 'hidden sm:inline-block'
+                }`}
               >
                 {item.label}
               </a>

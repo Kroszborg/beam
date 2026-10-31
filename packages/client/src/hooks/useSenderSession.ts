@@ -9,6 +9,7 @@ import {
   type ReceiverStatus,
   type SenderPhase,
   type SenderRoomInfo,
+  type SenderCode,
 } from '@/lib/session/senderSession';
 import { SIGNALING_URL } from '@/config/env';
 
@@ -17,7 +18,10 @@ export interface UseSender {
   room: SenderRoomInfo | null;
   receivers: ReceiverStatus[];
   error: string | null;
+  code: SenderCode | null;
   start: (files: File[]) => void;
+  /** Make (or replace) a short code; resolves when it's shown. */
+  createCode: () => Promise<void>;
 }
 
 export function useSenderSession(): UseSender {
@@ -26,6 +30,7 @@ export function useSenderSession(): UseSender {
   const [room, setRoom] = useState<SenderRoomInfo | null>(null);
   const [receivers, setReceivers] = useState<ReceiverStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [code, setCode] = useState<SenderCode | null>(null);
 
   useEffect(() => {
     return () => sessionRef.current?.close();
@@ -40,6 +45,7 @@ export function useSenderSession(): UseSender {
     session.on('phase', setPhase);
     session.on('room', setRoom);
     session.on('receivers', setReceivers);
+    session.on('code', setCode);
     session.on('error', (msg) => {
       setError(msg);
       setPhase('error');
@@ -50,5 +56,9 @@ export function useSenderSession(): UseSender {
     });
   }, []);
 
-  return { phase, room, receivers, error, start };
+  const createCode = useCallback(async () => {
+    await sessionRef.current?.createCode();
+  }, []);
+
+  return { phase, room, receivers, error, code, start, createCode };
 }

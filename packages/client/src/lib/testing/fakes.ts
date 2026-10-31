@@ -135,6 +135,7 @@ type SignalingEvents = {
 /** A tiny in-process signaling server. */
 export class FakeServer {
   private readonly rooms = new Map<string, { owner: string; members: Map<string, FakeSignaling> }>();
+  readonly codes = new Map<string, string>();
   private n = 0;
   id(): string {
     return `peer${String(this.n++).padStart(12, '0')}`;
@@ -182,6 +183,16 @@ export class FakeSignaling {
     this.roomId = this.server.create(this);
     this.ownerId = this.peerId;
     return { roomId: this.roomId, peerId: this.peerId, role: 'sender' as const, ownerId: this.peerId };
+  }
+  async createCode(): Promise<string> {
+    const nameplate = String(this.server.codes.size + 7);
+    this.server.codes.set(nameplate, this.roomId!);
+    return nameplate;
+  }
+  async resolveCode(nameplate: string): Promise<string> {
+    const roomId = this.server.codes.get(nameplate);
+    if (!roomId) throw new Error('No transfer with that code. Check the number and try again.');
+    return roomId;
   }
   async joinRoom(roomId: string) {
     this.ownerId = this.server.join(roomId, this);

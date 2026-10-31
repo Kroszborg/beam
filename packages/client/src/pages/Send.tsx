@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ShieldCheck, Loader2, CheckCircle2, AlertTriangle, Users } from 'lucide-react';
+import { ShieldCheck, Loader2, CheckCircle2, AlertTriangle, Users, KeyRound, RefreshCw } from 'lucide-react';
 import { PageShell } from '@/components/PageShell';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -108,6 +108,7 @@ function ShareAndProgress({
                 <div className="flex flex-wrap gap-2">
                   <CopyButton value={sender.room.shareUrl} label="Copy link" />
                 </div>
+                <ShortCode sender={sender} />
                 <p className="text-xs leading-relaxed text-[var(--color-ink-faint)]">
                   {files.length} file{files.length === 1 ? '' : 's'} · {formatBytes(total)}. Keep this
                   tab open while people download — several can use the link at once. The key lives
@@ -170,6 +171,66 @@ function ShareAndProgress({
 
       <SecurityNote />
     </motion.div>
+  );
+}
+
+/**
+ * Optional short code (`42-tiger-ocean`) for when a link is awkward — reading
+ * it out loud, typing it on a TV or another person's laptop.
+ */
+function ShortCode({ sender }: { sender: ReturnType<typeof useSenderSession> }) {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const make = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await sender.createCode();
+    } catch (e) {
+      setProblem((e as Error).message || "Couldn't create a code.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const code = sender.code;
+
+  if (!code) {
+    return (
+      <div className="space-y-1.5">
+        <Button variant="secondary" size="sm" onClick={make} disabled={busy} data-testid="make-code">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+          Use a short code instead
+        </Button>
+        {problem && <p className="text-xs text-[var(--color-danger)]">{problem}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
+      <span className="eyebrow text-[var(--color-ink-faint)]">Short code</span>
+      {code.disabled ? (
+        <p className="text-sm text-[var(--color-danger)]">
+          Disabled after too many wrong tries — someone may be guessing.
+        </p>
+      ) : (
+        <p data-testid="short-code" className="font-mono text-2xl tracking-wide text-[var(--color-ink)]">
+          {code.code}
+        </p>
+      )}
+      <p className="text-xs leading-relaxed text-[var(--color-ink-faint)]">
+        {code.disabled
+          ? 'The link still works. Make a new code if you need one.'
+          : `They open ${window.location.host}/receive and type it in. It stops working after ${code.attemptsLeft} more wrong ${code.attemptsLeft === 1 ? 'try' : 'tries'}.`}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {!code.disabled && <CopyButton value={code.code} label="Copy code" size="sm" />}
+        <Button variant="secondary" size="sm" onClick={make} disabled={busy}>
+          <RefreshCw className="h-3.5 w-3.5" />
+          New code
+        </Button>
+      </div>
+    </div>
   );
 }
 

@@ -65,11 +65,28 @@ export interface RejoinRoomMessage {
   token: string;
 }
 
+/**
+ * Sender asks for a short numeric "nameplate" pointing at its room, for
+ * human-typeable codes like `42-tiger-ocean`. Only the number is known to the
+ * server; the words are the PAKE password and never leave the browsers.
+ */
+export interface CreateCodeMessage {
+  type: 'create-code';
+}
+
+/** Receiver looks up the room behind a nameplate. */
+export interface ResolveCodeMessage {
+  type: 'resolve-code';
+  nameplate: string;
+}
+
 export type ClientToServerMessage =
   | CreateRoomMessage
   | JoinRoomMessage
   | RejoinRoomMessage
-  | SignalMessage;
+  | SignalMessage
+  | CreateCodeMessage
+  | ResolveCodeMessage;
 
 // ── Server → Client ───────────────────────────────────────────
 
@@ -124,6 +141,17 @@ export interface RelayedSignalMessage {
   data: SignalPayload;
 }
 
+export interface CodeCreatedMessage {
+  type: 'code-created';
+  nameplate: string;
+}
+
+export interface CodeResolvedMessage {
+  type: 'code-resolved';
+  nameplate: string;
+  roomId: string;
+}
+
 /** Error with a stable machine-readable code plus human message. */
 export interface ErrorMessage {
   type: 'error';
@@ -138,18 +166,38 @@ export type ServerToClientMessage =
   | PeerJoinedMessage
   | PeerLeftMessage
   | RelayedSignalMessage
+  | CodeCreatedMessage
+  | CodeResolvedMessage
   | ErrorMessage;
 
 // ── Shared payloads ───────────────────────────────────────────
 
 /**
- * SDP description, ICE candidate, or a switch to the WebSocket relay
- * (sent by the sender when the direct connection didn't come up in time).
+ * Peer-to-peer messages routed through the server, opaque to it:
+ *
+ *   sdp / ice   WebRTC handshake
+ *   relay       sender switches this receiver to the WebSocket relay
+ *   auth        link receiver proves it holds the key (HMAC, see crypto/auth)
+ *   pake        short-code receiver and sender run CPace (steps 1–3)
+ *   key         sender hands a code receiver the transfer key, wrapped under
+ *               the PAKE session key
+ *   denied      sender refuses this receiver
+ *
+ * The sender only opens a connection to a receiver after `auth` or a
+ * successful PAKE, so knowing a room id alone gets nobody any ciphertext.
+ * All binary values are base64url.
  */
 export type SignalPayload =
   | { kind: 'sdp'; description: RTCSessionDescriptionInitLike }
   | { kind: 'ice'; candidate: RTCIceCandidateInitLike | null }
-  | { kind: 'relay' };
+  | { kind: 'relay' }
+  | { kind: 'auth'; proof: string }
+  | { kind: 'pake'; step: 1 | 2; share: string }
+  | { kind: 'pake'; step: 3; confirm: string }
+  | { kind: 'key'; wrapped: string }
+  | { kind: 'denied'; reason: DeniedReason };
+
+export type DeniedReason = 'unauthorized' | 'wrong-code' | 'code-disabled';
 
 /**
  * Minimal structural mirror of the browser DTOs so @beam/shared stays free
@@ -173,6 +221,7 @@ export type SignalingErrorCode =
   | 'invalid-message'
   | 'not-in-room'
   | 'rate-limited'
+  | 'code-not-found'
   | 'internal-error';
 
 /** ICE server configuration handed to clients from `GET /ice`. */

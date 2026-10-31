@@ -40,6 +40,15 @@ export async function importKeyFromFragment(value: string): Promise<CryptoKey> {
   ]);
 }
 
+/** Raw key bytes (for receiver authentication and PAKE key wrapping). */
+export async function exportRawKey(key: CryptoKey): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.exportKey('raw', key));
+}
+
+export async function importRawKey(raw: Uint8Array): Promise<CryptoKey> {
+  return crypto.subtle.importKey('raw', asBufferSource(raw), { name: ALGORITHM }, true, ['encrypt', 'decrypt']);
+}
+
 /** A random per-session base nonce (8 bytes) used to derive chunk IVs. */
 export function generateBaseNonce(): Uint8Array {
   const nonce = new Uint8Array(8);

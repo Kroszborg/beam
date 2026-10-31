@@ -10,6 +10,7 @@ import type { Redis } from 'ioredis';
 import type { RoomBackend, RoomRecord, JoinResult } from './backend.js';
 
 const ROOM_PREFIX = 'beam:room:';
+const CODE_PREFIX = 'beam:code:';
 
 export class RedisBackend implements RoomBackend {
   private readonly subscriber: Redis;
@@ -79,6 +80,19 @@ export class RedisBackend implements RoomBackend {
 
   async touch(roomId: string): Promise<void> {
     await this.redis.expire(this.key(roomId), this.ttlSeconds);
+  }
+
+  async claimCode(nameplate: string, roomId: string, ttlSeconds: number): Promise<boolean> {
+    const ok = await this.redis.set(CODE_PREFIX + nameplate, roomId, 'EX', ttlSeconds, 'NX');
+    return ok === 'OK';
+  }
+
+  async resolveCode(nameplate: string): Promise<string | null> {
+    return this.redis.get(CODE_PREFIX + nameplate);
+  }
+
+  async releaseCode(nameplate: string): Promise<void> {
+    await this.redis.del(CODE_PREFIX + nameplate);
   }
 
   async publish(channel: string, payload: Buffer): Promise<void> {

@@ -11,6 +11,7 @@ import { SecurityNote } from '@/components/SecurityNote';
 import { StatusStepper } from '@/components/StatusStepper';
 import { RouteBadge } from '@/components/RouteBadge';
 import { useReceiverSession, type UseReceiver } from '@/hooks/useReceiverSession';
+import type { ReceiveTarget } from '@/lib/session/receiverSession';
 import { useKeepAlive } from '@/hooks/useKeepAlive';
 import { sinkOptions, type ReceiverState, type SinkOption } from '@/lib/transfer';
 import { formatBytes } from '@/lib/utils';
@@ -27,11 +28,18 @@ const STEP_INDEX: Record<ReceiverState, number> = {
   error: 0,
 };
 
+/** /r/:roomId — opened from a share link; the key is in the URL fragment. */
 export function ReceivePage() {
   const { roomId } = useParams<{ roomId: string }>();
   // The key rides in the URL fragment and is never sent to the server.
-  const keyFragment = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : '';
-  const rx = useReceiverSession(roomId, keyFragment);
+  const [target] = useState<ReceiveTarget | null>(() =>
+    roomId ? { roomId, keyFragment: window.location.hash.replace(/^#/, '') } : null,
+  );
+  return <ReceiveFlow target={target} />;
+}
+
+export function ReceiveFlow({ target, onRetry }: { target: ReceiveTarget | null; onRetry?: () => void }) {
+  const rx = useReceiverSession(target);
   const { state, progress, error, route, waiting } = rx;
 
   const isError = state === 'error';
@@ -92,11 +100,19 @@ export function ReceivePage() {
                   <div>
                     {error ?? 'The transfer could not be completed.'}
                     <div className="mt-1 text-[var(--color-ink-subtle)]">
-                      Ask the sender to keep their tab open, then{' '}
-                      <button className="underline" onClick={() => window.location.reload()}>
-                        retry
-                      </button>
-                      .
+                      {onRetry ? (
+                        <button className="underline" onClick={onRetry}>
+                          Try another code
+                        </button>
+                      ) : (
+                        <>
+                          Ask the sender to keep their tab open, then{' '}
+                          <button className="underline" onClick={() => window.location.reload()}>
+                            retry
+                          </button>
+                          .
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

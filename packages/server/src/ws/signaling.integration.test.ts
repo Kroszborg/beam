@@ -107,6 +107,46 @@ describe.each(['memory', 'redis'] as const)('signaling (%s backend)', (backend) 
     expect((await r2.next('peer-left')).peerId).toBe(created.peerId);
   });
 
+  it('maps a short-code nameplate to the room, and frees it with the room', async () => {
+    const url = await start(backend);
+    const sender = client(url);
+    await sender.opened;
+    sender.send({ type: 'create-code' });
+    expect((await sender.next('error')).code).toBe('invalid-message'); // not in a room yet
+
+    sender.send({ type: 'create-room' });
+    const { roomId } = await sender.next('room-created');
+    sender.send({ type: 'create-code' });
+    const { nameplate } = await sender.next('code-created');
+    expect(nameplate).toMatch(/^\d{1,2}$/);
+    sender.send({ type: 'create-code' });
+    expect((await sender.next('code-created')).nameplate).toBe(nameplate); // idempotent
+
+    const rx = client(url);
+    await rx.opened;
+    rx.send({ type: 'resolve-code', nameplate });
+    expect(await rx.next('code-resolved')).toMatchObject({ nameplate, roomId });
+    rx.send({ type: 'resolve-code', nameplate: 'abc' });
+    expect((await rx.next('error')).code).toBe('code-not-found');
+
+    sender.ws.close();
+    await new Promise((r) => setTimeout(r, 100));
+    rx.send({ type: 'resolve-code', nameplate });
+    expect((await rx.next('error')).code).toBe('code-not-found');
+  });
+
+  it('rate-limits code lookups per connection', async () => {
+    const url = await start(backend);
+    const rx = client(url);
+    await rx.opened;
+    for (let i = 0; i < 10; i++) {
+      rx.send({ type: 'resolve-code', nameplate: String(i + 1) });
+      expect((await rx.next('error')).code).toBe('code-not-found');
+    }
+    rx.send({ type: 'resolve-code', nameplate: '11' });
+    expect((await rx.next('error')).code).toBe('rate-limited');
+  });
+
   it('relays binary frames with the source peer id swapped in', async () => {
     const url = await start(backend);
     const sender = client(url);

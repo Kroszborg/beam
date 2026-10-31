@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { SenderSession, type ReceiverStatus, type SenderRoomInfo } from './senderSession.js';
-import { ReceiverSession } from './receiverSession.js';
+import { SenderSession, type ReceiverStatus, type SenderRoomInfo, type SenderCode } from './senderSession.js';
+import { ReceiverSession, type ReceiveTarget } from './receiverSession.js';
 import type { SessionDeps } from './deps.js';
 import type { SignalingClient } from '../signaling/signalingClient.js';
 import type { PeerConnection } from '../webrtc/index.js';
@@ -54,26 +54,35 @@ async function startSender(deps: SessionDeps, files: File[]) {
   let room: SenderRoomInfo | null = null;
   let receivers: ReceiverStatus[] = [];
   sender.on('room', (r) => (room = r));
+  let code: SenderCode | null = null;
   sender.on('receivers', (r) => (receivers = r));
+  sender.on('code', (c) => (code = c));
   await sender.start(files);
   await until(() => room !== null);
-  return { sender, room: room!, receivers: () => receivers };
+  return { sender, room: room!, receivers: () => receivers, code: () => code };
 }
 
-async function startReceiver(deps: SessionDeps, room: SenderRoomInfo) {
-  const rx = new ReceiverSession('http://x', deps);
+function linkTarget(room: SenderRoomInfo): ReceiveTarget {
   const url = new URL(room.shareUrl);
+  return { roomId: url.pathname.split('/').pop()!, keyFragment: url.hash.slice(1) };
+}
+
+/** Start a receiver; resolves once the file list arrived (or it failed). */
+async function startReceiver(deps: SessionDeps, target: SenderRoomInfo | ReceiveTarget) {
+  const rx = new ReceiverSession('http://x', deps);
   let ready = false;
   let complete = false;
+  let error: string | null = null;
   let route: string | null = null;
   rx.on('state', (s) => {
     if (s === 'ready') ready = true;
   });
+  rx.on('error', (e) => (error = e));
   rx.on('complete', () => (complete = true));
   rx.on('route', (r) => (route = r));
-  await rx.start(url.pathname.split('/').pop()!, url.hash.slice(1));
-  await until(() => ready);
-  return { rx, complete: () => complete, route: () => route };
+  await rx.start('shareUrl' in target ? linkTarget(target) : target);
+  await until(() => ready || error !== null);
+  return { rx, complete: () => complete, route: () => route, error: () => error };
 }
 
 const same = (a: Uint8Array | undefined, b: Uint8Array) =>
@@ -112,6 +121,49 @@ describe('sessions', () => {
     await until(r.complete);
     expect(same(sinks[0]!.data.get(0), data)).toBe(true);
     expect(receivers()[0]!.route).toBe('relay');
+  });
+
+  it('receives with a short code via CPace, without the link key', async () => {
+    const { deps, sinks } = world();
+    const data = bytes(2 * MB + 5, 5);
+    const s = await startSender(deps, [new File([data], 'c.bin')]);
+    await s.sender.createCode();
+    const code = s.code()!.code;
+    expect(code).toMatch(/^\d+-[a-z]+-[a-z]+$/);
+
+    const r = await startReceiver(deps, { code: code.toUpperCase().replace(/-/g, ' ') });
+    expect(r.error()).toBeNull();
+    await r.rx.accept([0], 'idb');
+    await until(r.complete);
+    expect(same(sinks[0]!.data.get(0), data)).toBe(true);
+    expect(s.code()!.attemptsLeft).toBe(3); // the successful run was refunded
+  });
+
+  it('refuses wrong codes and disables the code after three', async () => {
+    const { deps } = world();
+    const s = await startSender(deps, [new File([bytes(1000, 6)], 'w.bin')]);
+    await s.sender.createCode();
+    const [nameplate, w1, w2] = s.code()!.code.split('-');
+    const wrong = `${nameplate}-${w1}-${w2 === 'tiger' ? 'zebra' : 'tiger'}`;
+
+    for (let i = 0; i < 3; i++) {
+      const r = await startReceiver(deps, { code: wrong });
+      expect(r.error()).toMatch(i < 2 ? /doesn't match/ : /stopped working/);
+    }
+    expect(s.code()).toMatchObject({ attemptsLeft: 0, disabled: true });
+    const late = await startReceiver(deps, { code: s.code()!.code });
+    expect(late.error()).toMatch(/stopped working/);
+    expect(s.receivers()).toEqual([]); // nobody was ever connected
+  });
+
+  it('refuses a link whose key was tampered with', async () => {
+    const { deps } = world();
+    const s = await startSender(deps, [new File([bytes(1000, 7)], 't.bin')]);
+    const target = linkTarget(s.room) as { roomId: string; keyFragment: string };
+    const forged = { roomId: target.roomId, keyFragment: 'A'.repeat(43) };
+    const r = await startReceiver(deps, forged);
+    expect(r.error()).toMatch(/couldn't verify/);
+    expect(s.receivers()).toEqual([]);
   });
 
   it('renegotiates and resumes when the direct channel drops mid-transfer', async () => {

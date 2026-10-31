@@ -41,6 +41,17 @@ describe.each(backends)('%s backend', (_name, make) => {
     await b.removeMember('r', 'a');
     expect(await b.getRoom('r')).toBeNull();
   });
+
+  it('claims, resolves and releases short-code nameplates', async () => {
+    b = make();
+    expect(await b.claimCode('42', 'room1', 60)).toBe(true);
+    expect(await b.claimCode('42', 'room2', 60)).toBe(false);
+    expect(await b.resolveCode('42')).toBe('room1');
+    expect(await b.resolveCode('43')).toBeNull();
+    await b.releaseCode('42');
+    expect(await b.resolveCode('42')).toBeNull();
+    expect(await b.claimCode('42', 'room2', 60)).toBe(true);
+  });
 });
 
 describe('memory backend expiry and bus', () => {

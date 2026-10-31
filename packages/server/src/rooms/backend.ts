@@ -33,6 +33,12 @@ export interface RoomBackend {
   /** Refresh the TTL on activity so live transfers don't expire. */
   touch(roomId: string): Promise<void>;
 
+  /** Point a short-code nameplate at a room. False if the nameplate is taken. */
+  claimCode(nameplate: string, roomId: string, ttlSeconds: number): Promise<boolean>;
+  /** The room a nameplate points at, or null. */
+  resolveCode(nameplate: string): Promise<string | null>;
+  releaseCode(nameplate: string): Promise<void>;
+
   publish(channel: string, payload: Buffer): Promise<void>;
   subscribe(channel: string): Promise<void>;
   unsubscribe(channel: string): Promise<void>;
