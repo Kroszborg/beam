@@ -15,9 +15,14 @@
     "build": "pnpm --filter @beam/shared build && pnpm --filter @beam/server build && pnpm --filter @beam/client build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "e2e": "playwright test"
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
-  }
+    "@playwright/test": "1.48.2",
+    "@types/yauzl": "2.10.3",
+    "typescript": "^5.7.3",
+    "yauzl": "3.1.3"
+  },
+  "packageManager": "pnpm@10.33.2"
 }
