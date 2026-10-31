@@ -1,17 +1,22 @@
 /**
  * The narrow transport contract the transfer layer depends on.
  *
- * DataChannelTransport (the real WebRTC implementation) satisfies this, but so
- * can an in-memory paired transport in tests — which lets the entire transfer
- * protocol (encrypt → frame → send → reassemble → verify → decrypt → assemble,
- * plus resume) be exercised without a browser or a real peer connection.
+ * DataChannelTransport (WebRTC) and RelayTransport (WebSocket fallback through
+ * the server) satisfy it, and so does an in-memory pair in tests — which lets
+ * the whole protocol (seal → frame → send → reassemble → decrypt → sink, plus
+ * resume and flow control) run without a browser.
  */
 export type ChannelData = string | ArrayBuffer;
 
 export interface Transport {
   readonly readyState: RTCDataChannelState;
+  /** Bytes queued locally and not yet handed to the network. */
+  readonly bufferedAmount: number;
+  /** Largest single message the peer accepts (0 if unknown). */
+  readonly maxMessageSize: number;
   onMessage(handler: (data: ChannelData) => void): void;
+  onClose(handler: () => void): void;
   send(data: string | ArrayBufferView | ArrayBuffer): void;
-  /** Resolves when the channel can accept more data (backpressure). */
-  whenWritable(): Promise<void>;
+  /** Resolves once the send buffer has drained to the low-water mark (or the channel closed). */
+  drained(): Promise<void>;
 }

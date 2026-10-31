@@ -1,22 +1,32 @@
 /**
- * High-level WebRTC peer connection.
+ * High-level WebRTC peer connection to one remote peer.
  *
  * Encapsulates the offer/answer + ICE choreography against a SignalingClient
  * and surfaces a single clean event: `channel-open`, delivering a ready
- * DataChannelTransport. Roles are fixed and deterministic — the sender is the
- * offerer and owns the DataChannel; the receiver answers and adopts the
- * channel the sender created. Fixed roles sidestep negotiation glare entirely.
+ * DataChannelTransport. Roles are fixed — the sender is the offerer and owns
+ * the DataChannel; the receiver answers and adopts it — which sidesteps
+ * negotiation glare entirely. A sender holds one PeerConnection per receiver;
+ * signals are routed by peer id.
  *
- * Once `channel-open` fires, the signaling server has done its job and the
- * bulk transfer proceeds peer-to-peer with no further server involvement.
+ * Once `channel-open` fires, the bulk transfer runs peer-to-peer with no
+ * further server involvement.
  */
 import type { PeerRole, SignalPayload } from '@beam/shared';
 import { Emitter } from '../events.js';
 import { DataChannelTransport } from './dataChannel.js';
 import type { SignalingClient } from '../signaling/signalingClient.js';
 
+/** How the bytes are actually travelling, for the UI. */
+export type Route = 'lan' | 'direct' | 'turn' | 'relay';
+
 type ConnectionEvents = {
   'channel-open': DataChannelTransport;
+  /**
+   * Receiver only: a new offer arrived on an already-negotiated connection —
+   * the sender restarted the handshake. The session answers it on a fresh
+   * PeerConnection (see `handleSignal`).
+   */
+  'new-offer': SignalPayload;
   state: RTCPeerConnectionState;
   connected: void;
   disconnected: void;
@@ -32,12 +42,14 @@ export class PeerConnection {
   private readonly pendingCandidates: RTCIceCandidateInit[] = [];
   private remoteDescriptionSet = false;
   private unsubscribeSignal: (() => void) | null = null;
+  private channel: RTCDataChannel | null = null;
 
   readonly on = this.emitter.on.bind(this.emitter);
 
   constructor(
     private readonly role: PeerRole,
-    private readonly roomId: string,
+    /** The peer on the other end. */
+    readonly remoteId: string,
     private readonly signaling: SignalingClient,
     iceServers: RTCIceServer[],
   ) {
@@ -45,10 +57,7 @@ export class PeerConnection {
 
     // Trickle our ICE candidates to the other peer as they're discovered.
     this.pc.onicecandidate = (event) => {
-      this.signaling.sendSignal(this.roomId, {
-        kind: 'ice',
-        candidate: event.candidate ? event.candidate.toJSON() : null,
-      });
+      this.signal({ kind: 'ice', candidate: event.candidate ? event.candidate.toJSON() : null });
     };
 
     this.pc.onconnectionstatechange = () => {
@@ -65,44 +74,56 @@ export class PeerConnection {
       this.adoptChannel(event.channel);
     };
 
-    this.unsubscribeSignal = this.signaling.on('signal', ({ data }) => {
-      void this.onSignal(data);
+    this.unsubscribeSignal = this.signaling.on('signal', ({ from, data }) => {
+      if (from !== remoteId) return;
+      if (
+        role === 'receiver' &&
+        this.remoteDescriptionSet &&
+        data.kind === 'sdp' &&
+        data.description.type === 'offer'
+      ) {
+        this.emitter.emit('new-offer', data);
+        return;
+      }
+      void this.handleSignal(data);
     });
   }
 
-  /**
-   * Sender-only: create the DataChannel and kick off the offer. Call this once
-   * the receiver is known to be present (i.e. after `peer-joined`).
-   */
+  /** Apply a signal from the remote peer (also used to hand over a new offer). */
+  handleSignal(payload: SignalPayload): Promise<void> {
+    return this.onSignal(payload).catch(() => {});
+  }
+
+  private signal(data: SignalPayload): void {
+    this.signaling.sendSignal(data, this.role === 'sender' ? this.remoteId : undefined);
+  }
+
+  /** Sender-only: create the DataChannel and kick off the offer. */
   async start(): Promise<void> {
     if (this.role !== 'sender') return;
     const channel = this.pc.createDataChannel(DATA_CHANNEL_LABEL, {
-      ordered: true, // reliable + ordered: the transfer layer relies on order
+      ordered: true, // reliable + ordered: frames of a chunk arrive contiguously
     });
     this.adoptChannel(channel);
 
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
-    this.signaling.sendSignal(this.roomId, {
+    this.signal({
       kind: 'sdp',
       description: { type: offer.type, ...(offer.sdp ? { sdp: offer.sdp } : {}) },
     });
   }
 
   private adoptChannel(channel: RTCDataChannel): void {
-    const transport = new DataChannelTransport(channel);
-    if (channel.readyState === 'open') {
-      this.emitter.emit('channel-open', transport);
-    } else {
-      channel.onopen = () => this.emitter.emit('channel-open', transport);
-    }
+    this.channel = channel;
+    const open = () => this.emitter.emit('channel-open', new DataChannelTransport(channel, this.pc.sctp));
+    if (channel.readyState === 'open') open();
+    else channel.addEventListener('open', open, { once: true });
   }
 
   private async onSignal(payload: SignalPayload): Promise<void> {
     if (payload.kind === 'sdp') {
-      await this.pc.setRemoteDescription(
-        payload.description as RTCSessionDescriptionInit,
-      );
+      await this.pc.setRemoteDescription(payload.description as RTCSessionDescriptionInit);
       this.remoteDescriptionSet = true;
       await this.flushPendingCandidates();
 
@@ -110,18 +131,15 @@ export class PeerConnection {
       if (payload.description.type === 'offer') {
         const answer = await this.pc.createAnswer();
         await this.pc.setLocalDescription(answer);
-        this.signaling.sendSignal(this.roomId, {
+        this.signal({
           kind: 'sdp',
-          description: {
-            type: answer.type,
-            ...(answer.sdp ? { sdp: answer.sdp } : {}),
-          },
+          description: { type: answer.type, ...(answer.sdp ? { sdp: answer.sdp } : {}) },
         });
       }
     } else if (payload.kind === 'ice') {
       if (!payload.candidate) return; // end-of-candidates sentinel
       if (this.remoteDescriptionSet) {
-        await this.pc.addIceCandidate(payload.candidate);
+        await this.pc.addIceCandidate(payload.candidate).catch(() => {});
       } else {
         this.pendingCandidates.push(payload.candidate);
       }
@@ -139,6 +157,30 @@ export class PeerConnection {
     }
   }
 
+  /** Classify the selected ICE candidate pair: same network, direct, or via TURN. */
+  async route(): Promise<Route | null> {
+    try {
+      const stats = await this.pc.getStats();
+      let pair: { localCandidateId?: string; remoteCandidateId?: string } | undefined;
+      stats.forEach((s) => {
+        if (s.type === 'transport' && s.selectedCandidatePairId) pair = stats.get(s.selectedCandidatePairId);
+      });
+      if (!pair) {
+        stats.forEach((s) => {
+          if (s.type === 'candidate-pair' && s.state === 'succeeded' && (s.selected || s.nominated)) pair ??= s;
+        });
+      }
+      if (!pair) return null;
+      const local = stats.get(pair.localCandidateId ?? '')?.candidateType;
+      const remote = stats.get(pair.remoteCandidateId ?? '')?.candidateType;
+      if (local === 'relay' || remote === 'relay') return 'turn';
+      if (local === 'host' && remote === 'host') return 'lan';
+      return 'direct';
+    } catch {
+      return null;
+    }
+  }
+
   get connectionState(): RTCPeerConnectionState {
     return this.pc.connectionState;
   }
@@ -146,6 +188,7 @@ export class PeerConnection {
   close(): void {
     this.unsubscribeSignal?.();
     this.unsubscribeSignal = null;
+    this.channel?.close();
     this.pc.close();
     this.emitter.clear();
   }

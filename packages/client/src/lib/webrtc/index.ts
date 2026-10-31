@@ -3,7 +3,9 @@
  * files, chunks, or keys.
  */
 export { PeerConnection } from './connection.js';
+export type { Route } from './connection.js';
 export { DataChannelTransport } from './dataChannel.js';
-export type { ChannelMessage } from './dataChannel.js';
+export { RelayTransport } from './relayTransport.js';
 export type { Transport, ChannelData } from './transport.js';
-export { fetchIceServers } from './iceClient.js';
+export { fetchIceConfig } from './iceClient.js';
+export type { IceConfig } from './iceClient.js';

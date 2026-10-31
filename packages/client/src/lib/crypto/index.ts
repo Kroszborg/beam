@@ -8,5 +8,4 @@
  */
 export { generateSessionKey, exportKeyToFragment, importKeyFromFragment, generateBaseNonce } from './keys.js';
 export { encryptChunk, decryptChunk, deriveIv } from './cipher.js';
-export { sha256 } from './hash.js';
 export { bytesToBase64Url, base64UrlToBytes, bytesEqual } from './encoding.js';

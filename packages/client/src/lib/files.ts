@@ -3,9 +3,20 @@
  *
  * Folder support comes from the (non-standard but widely supported) WebKit
  * entries API on DataTransferItem. We walk directory trees recursively so a
- * dropped folder yields all its files with their relative paths preserved in
- * the File name where possible.
+ * dropped folder yields all its files, and remember each file's path relative
+ * to the drop so the receiver can recreate the folder structure.
  */
+
+/** Paths recorded for dropped files (File.name is only the base name). */
+const paths = new WeakMap<File, string>();
+
+/**
+ * A file's path relative to what the user picked: from a folder drop, from
+ * the folder picker (`webkitRelativePath`), or just its name.
+ */
+export function relativePath(file: File): string {
+  return paths.get(file) || file.webkitRelativePath || file.name;
+}
 
 interface FileSystemEntryLike {
   isFile: boolean;
@@ -43,7 +54,9 @@ function readDirectory(entry: FileSystemEntryLike): Promise<FileSystemEntryLike[
 
 async function walkEntry(entry: FileSystemEntryLike, out: File[]): Promise<void> {
   if (entry.isFile) {
-    out.push(await readEntryFile(entry));
+    const file = await readEntryFile(entry);
+    if (entry.fullPath) paths.set(file, entry.fullPath.replace(/^\/+/, ''));
+    out.push(file);
   } else if (entry.isDirectory) {
     const entries = await readDirectory(entry);
     for (const child of entries) await walkEntry(child, out);

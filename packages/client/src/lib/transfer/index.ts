@@ -2,22 +2,23 @@
  * Transfer protocol layer public API.
  *
  * Composes the encryption layer (crypto) and transport layer (webrtc) into the
- * end-to-end chunked, verified, resumable transfer — but depends on them only
- * through their narrow public APIs, never their internals.
+ * end-to-end chunked, authenticated, flow-controlled, resumable transfer — but
+ * depends on them only through their narrow public APIs, never their internals.
  */
-export { FileSender } from './sender.js';
-export type { FileSenderCallbacks } from './sender.js';
-export { FileReceiver } from './receiver.js';
-export type { FileReceiverCallbacks } from './receiver.js';
-export { FileChunker } from './chunker.js';
+export { FileSender, Upload } from './fileSender.js';
+export type { UploadCallbacks } from './fileSender.js';
+export { FileReceiver, toRanges } from './fileReceiver.js';
+export type { FileReceiverCallbacks } from './fileReceiver.js';
 export { TransferLayout } from './layout.js';
-export { computeMerkleRoot, verifyMerkleRoot } from './merkle.js';
-export { computeMissingChunks, isComplete } from './bitmap.js';
-export { frameChunk, parseFrame, ChunkReassembler } from './framing.js';
+export { buildManifest, sealManifest, openManifest, validateManifest, ManifestError } from './manifest.js';
+export { frames, Reassembler } from './wire.js';
 export { ProgressTracker } from './progress.js';
 export { ResumeStore } from './resumeStore.js';
+export { chooseSink, sinkOptions, prepareSinks } from './sinks/choose.js';
+export type { SinkOption } from './sinks/choose.js';
+export type { FileSink, SinkFile, SinkKind } from './sinks/types.js';
 export type {
-  SenderState,
+  UploadState,
   ReceiverState,
   TransferProgress,
   CompletedFile,
