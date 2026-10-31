@@ -3,6 +3,10 @@
 This walks through hosting Beam on a single Google Compute Engine VM, served at
 **https://beam.kroszborg.co** with HTTPS.
 
+> **Shortcut:** on any Docker host, `BEAM_DOMAIN=beam.example.com docker compose up -d`
+> runs the server, the app and automatic HTTPS (Caddy) in two containers — no
+> nginx, Redis or certbot steps. The rest of this guide is the manual setup.
+
 ## Architecture on the box
 
 ```
@@ -14,15 +18,16 @@ This walks through hosting Beam on a single Google Compute Engine VM, served at
             static client (dist)  │   /ws /ice /health  (reverse proxy)
             served from disk      ▼
                           ┌───────────────┐     ┌─────────┐
-                          │ beam-server   │────▶│  redis  │
-                          │ (node, :8787) │     │ (local) │
+                          │ beam-server   │····▶│  redis  │
+                          │ (node, :8787) │     │(optional)│
                           └───────────────┘     └─────────┘
 ```
 
 - **Client** = a static SPA (Vite build). nginx serves it from disk.
 - **Signaling server** = Node process on `127.0.0.1:8787`, proxied by nginx at
-  `/ws`, `/ice`, `/health`. Needs Redis (room/presence only — never files).
-- **Redis** = local `apt` install; rooms expire via TTL.
+  `/ws`, `/ice`, `/health`. Keeps rooms in memory; when two peers can't
+  connect directly it also relays their (end-to-end encrypted) stream over `/ws`.
+- **Redis** = only needed to run several server instances; skip it otherwise.
 
 ---
 
@@ -36,8 +41,9 @@ This walks through hosting Beam on a single Google Compute Engine VM, served at
 | Region         | Closest to your users (e.g. `us-central1`, `asia-south1`) |
 | Firewall       | Allow **HTTP** and **HTTPS** traffic               |
 
-The signaling server is lightweight (it never moves file bytes), so a small VM
-is plenty. Most cost comes from the VM being always-on.
+The server is lightweight: file bytes normally go peer-to-peer and only touch
+the VM when the encrypted relay fallback is used (it stays end-to-end
+encrypted), so a small VM is plenty. Most cost comes from the VM being always-on.
 
 ### Create it (gcloud)
 
@@ -78,9 +84,8 @@ gcloud compute ssh beam --zone=us-central1-a
 
 Install Node 22+, pnpm, Redis, nginx, certbot:
 
-> **Use Node 22, not 20.** corepack installs the latest pnpm (v11+), which
-> requires Node ≥ 22.13 (it uses the `node:sqlite` built-in). On Node 20 you'll
-> hit `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite`.
+> **Use Node 22.** The repo pins pnpm 10.33.2 via `packageManager`, so
+> corepack installs that exact version. Node 22 LTS is what's tested.
 
 ```bash
 sudo apt update && sudo apt upgrade -y
@@ -132,7 +137,8 @@ Create the server env file `/opt/beam/.env`:
 ```ini
 PORT=8787
 HOST=127.0.0.1
-REDIS_URL=redis://localhost:6379
+# Only for multi-instance setups (then also set the same SESSION_SECRET on each):
+# REDIS_URL=redis://localhost:6379
 ROOM_TTL_SECONDS=3600
 CORS_ORIGINS=https://beam.kroszborg.co
 STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302
@@ -140,6 +146,9 @@ STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302
 TURN_URL=
 TURN_USERNAME=
 TURN_CREDENTIAL=
+# Encrypted relay fallback through this server (costs bandwidth when used):
+RELAY_ENABLED=true
+MAX_RECEIVERS=8
 NODE_ENV=production
 ```
 
@@ -197,6 +206,17 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
+    # The service worker (streaming downloads, share target) must never be
+    # cached, or clients keep running an old version after a deploy.
+    location = /sw.js {
+        add_header Cache-Control "no-cache";
+    }
+
+    # Hashed build assets can be cached forever.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
     # WebSocket signaling — requires the upgrade headers
     location /ws {
         proxy_pass http://127.0.0.1:8787;
@@ -204,7 +224,10 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
-        proxy_read_timeout 3600s;
+        # Relayed transfers can run for hours.
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        proxy_buffering off;
     }
 
     location ~ ^/(ice|health)$ {
@@ -242,20 +265,20 @@ Add these inside the `server { ... }` block (the `:443` one certbot created) and
 ```nginx
 add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 add_header X-Content-Type-Options "nosniff" always;
-add_header X-Frame-Options "DENY" always;
-add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Referrer-Policy "no-referrer" always;
 add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
 
-# Optional, stricter — test before committing (a wrong CSP breaks the app):
-# add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'" always;
+# Same policy the bundled server sends when it serves the app (STATIC_DIR):
+add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; frame-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" always;
 ```
 
 ---
 
 ## 8. Optional: TURN for strict networks
 
-STUN-only fails for some symmetric-NAT / CGNAT pairs. To make those work, run a
-TURN server (e.g. `coturn`) or use a hosted one (Metered, Twilio), then fill
+STUN-only fails for some symmetric-NAT / CGNAT pairs. Beam's built-in relay
+covers them out of the box (through this server's bandwidth). To keep that
+traffic off your server, run a TURN server (e.g. `coturn`) or use a hosted one (Metered, Twilio), then fill
 `TURN_URL`, `TURN_USERNAME`, `TURN_CREDENTIAL` in `/opt/beam/.env` and
 `sudo systemctl restart beam-server`. No client change needed — it reads `/ice`.
 
@@ -270,6 +293,13 @@ VITE_SIGNALING_URL=https://beam.kroszborg.co pnpm --filter @beam/client build
 sudo cp -r packages/client/dist/* /var/www/beam/
 sudo systemctl restart beam-server
 ```
+
+> **Upgrading a box set up before protocol v2:** also add the `/sw.js` and
+> `/assets/` blocks and the `/ws` timeouts from §6 to the nginx config, then
+> `sudo nginx -t && sudo systemctl reload nginx`. Redis is now optional — an
+> existing `REDIS_URL` keeps working. v1 and v2 clients can't talk to each
+> other; a stale tab shows a "different version of Beam" message until it's
+> reloaded.
 
 ## 10. Quick checks
 
@@ -287,8 +317,10 @@ end-to-end transfer over the deployed stack.
 # Alternative: AWS Lightsail
 
 Lightsail is a good low-cost home for Beam. The **$5/mo plan (512 MB RAM,
-2 vCPU)** is enough to *run* it — the signaling server is featherweight because
-file bytes never pass through the VM (they go peer-to-peer or via a TURN relay).
+2 vCPU)** is enough to *run* it — the server is featherweight because file
+bytes normally go peer-to-peer. Only the encrypted relay fallback sends them
+through the VM (counted against the included transfer; set
+`RELAY_ENABLED=false` to turn it off).
 The only catch is that **512 MB is tight for the Vite build**, so add swap.
 
 Advantages over a plain VM: a **free static IP** (no more IP-changes-on-restart)

@@ -32,3 +32,7 @@ coverage/
 shot-*.png
 *.out.log
 *.err.log
+
+# Playwright
+test-results/
+playwright-report/

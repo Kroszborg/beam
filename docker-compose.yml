@@ -1,0 +1,36 @@
+# Self-host Beam with HTTPS in one command:
+#
+#   BEAM_DOMAIN=beam.example.com docker compose up -d
+#
+# Point the domain's DNS at this machine first; Caddy fetches the certificate.
+# No Redis needed for a single instance. For several instances behind a load
+# balancer, add a redis service and set REDIS_URL + SESSION_SECRET on each.
+services:
+  beam:
+    build: .
+    restart: unless-stopped
+    environment:
+      CORS_ORIGINS: https://${BEAM_DOMAIN:?set BEAM_DOMAIN}
+      # Optional TURN for peers behind strict NATs (the built-in relay covers
+      # them too, at the cost of this server's bandwidth):
+      # TURN_URL: turn:turn.example.com:3478
+      # TURN_USERNAME: beam
+      # TURN_CREDENTIAL: change-me
+      # RELAY_ENABLED: "false"
+      # MAX_RECEIVERS: "8"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      BEAM_DOMAIN: ${BEAM_DOMAIN}
+    command: caddy reverse-proxy --from ${BEAM_DOMAIN} --to beam:8787
+    volumes:
+      - caddy-data:/data
+
+volumes:
+  caddy-data:
