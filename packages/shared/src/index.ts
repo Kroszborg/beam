@@ -8,3 +8,4 @@
 export * from './crypto.js';
 export * from './signaling.js';
 export * from './transfer.js';
+export * from './store.js';

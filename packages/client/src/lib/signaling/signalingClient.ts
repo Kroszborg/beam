@@ -42,6 +42,8 @@ export interface RoomInfo {
   role: PeerRole;
   /** The sender's peer id (equals peerId for the sender). */
   ownerId: string;
+  /** Whether the sender was connected when we joined. */
+  ownerPresent: boolean;
 }
 
 /** A server error, with its machine-readable code. */
@@ -100,6 +102,11 @@ export class SignalingClient {
 
   get room(): RoomInfo | null {
     return this.session;
+  }
+
+  /** This peer's server-issued room token (proves room ownership to /store). */
+  get token(): string | null {
+    return this.session?.token ?? null;
   }
 
   private openSocket(onOpen?: () => void, onError?: (e: Error) => void): void {
@@ -164,6 +171,7 @@ export class SignalingClient {
           peerId: msg.peerId,
           role: 'sender',
           ownerId: msg.peerId,
+          ownerPresent: true,
           token: msg.token,
         });
         this.pending = null;
@@ -174,6 +182,7 @@ export class SignalingClient {
           peerId: msg.peerId,
           role: 'receiver',
           ownerId: msg.ownerId,
+          ownerPresent: msg.ownerPresent !== false,
           token: msg.token,
         });
         this.pending = null;

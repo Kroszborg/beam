@@ -9,6 +9,7 @@ import type { PeerRole } from '@beam/shared';
 import type { SignalingClient } from '../signaling/signalingClient.js';
 import type { IceConfig, PeerConnection } from '../webrtc/index.js';
 import type { chooseSink } from '../transfer/index.js';
+import type { StoreApi } from '../store/storeApi.js';
 
 export interface SessionDeps {
   createSignaling?: (url: string) => SignalingClient;
@@ -25,4 +26,8 @@ export interface SessionDeps {
   forceRelay?: boolean;
   /** Where received files go (tests use an in-memory sink). */
   chooseSink?: typeof chooseSink;
+  /** Store-and-forward API (tests use an in-memory server). */
+  store?: StoreApi;
+  /** How long a receiver waits for a departed sender before using the copy (ms). */
+  storeFallbackMs?: number;
 }

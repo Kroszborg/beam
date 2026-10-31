@@ -17,7 +17,8 @@ import { DataChannelTransport } from './dataChannel.js';
 import type { SignalingClient } from '../signaling/signalingClient.js';
 
 /** How the bytes are actually travelling, for the UI. */
-export type Route = 'lan' | 'direct' | 'turn' | 'relay';
+/** How bytes travel; 'stored' = downloading the sender's copy from the server. */
+export type Route = 'lan' | 'direct' | 'turn' | 'relay' | 'stored';
 
 type ConnectionEvents = {
   'channel-open': DataChannelTransport;

@@ -21,7 +21,7 @@
  * healthy are never torn down because of a signaling blip — the WebRTC link
  * doesn't need the server once it's up.
  */
-import type { SignalPayload } from '@beam/shared';
+import type { SignalPayload, StoreLimits } from '@beam/shared';
 import {
   generateSessionKey,
   generateBaseNonce,
@@ -37,6 +37,8 @@ import {
   type PakeKeys,
 } from '../crypto/index.js';
 import { MAX_CODE_ATTEMPTS, randomWords } from '../codes.js';
+import { StoreApi } from '../store/storeApi.js';
+import { StoreUploader, type CopyStatus } from '../store/storeUploader.js';
 import { SignalingClient } from '../signaling/signalingClient.js';
 import {
   PeerConnection,
@@ -54,6 +56,8 @@ import type { SessionDeps } from './deps.js';
 export interface SenderRoomInfo {
   roomId: string;
   shareUrl: string;
+  /** Set when the server can keep an encrypted copy (store-and-forward). */
+  storeLimits?: StoreLimits;
 }
 
 /** The short code shown to the sender, if one was made. */
@@ -87,6 +91,7 @@ type SenderSessionEvents = {
   room: SenderRoomInfo;
   receivers: ReceiverStatus[];
   code: SenderCode;
+  copy: CopyStatus;
   error: string;
 };
 
@@ -114,6 +119,7 @@ export class SenderSession {
   /** In-flight PAKE runs, by receiver. */
   private readonly pakes = new Map<string, PakeKeys>();
   private code: { password: string; used: number; disabled: boolean } | null = null;
+  private uploader: StoreUploader | null = null;
 
   readonly on = this.emitter.on.bind(this.emitter);
 
@@ -143,7 +149,11 @@ export class SenderSession {
     this.roomId = roomId;
     this.peerId = peerId;
 
-    this.emitter.emit('room', { roomId, shareUrl: `${this.appOrigin}/r/${roomId}#${keyFragment}` });
+    this.emitter.emit('room', {
+      roomId,
+      shareUrl: `${this.appOrigin}/r/${roomId}#${keyFragment}`,
+      ...(this.ice.store ? { storeLimits: this.ice.store } : {}),
+    });
     this.emitter.emit('phase', 'waiting');
 
     // A receiver is connected once it proves itself (see onPeerSignal). After a
@@ -188,6 +198,29 @@ export class SenderSession {
     const nameplate = await this.signaling.createCode();
     this.code = { password: `${nameplate}-${randomWords()}`, used: 0, disabled: false };
     this.emitCode();
+  }
+
+  /**
+   * Upload an encrypted copy so receivers can download after this tab is
+   * closed (store-and-forward). Receivers can start on it right away; the
+   * link stays the same.
+   */
+  keepCopy(): void {
+    if (!this.sender || !this.signaling || this.uploader) return;
+    const token = this.signaling.token;
+    if (!token) throw new Error('Not connected to the Beam server yet.');
+    const api = this.deps.store ?? new StoreApi(this.signalingUrl);
+    this.uploader = new StoreUploader(api, this.sender, { roomId: this.roomId, peerId: this.peerId, token }, (s) =>
+      this.emitter.emit('copy', s),
+    );
+    void this.uploader.run();
+  }
+
+  /** Stop uploading the copy and delete it from the server. */
+  async removeCopy(): Promise<void> {
+    const uploader = this.uploader;
+    this.uploader = null;
+    await uploader?.remove();
   }
 
   private emitCode(): void {

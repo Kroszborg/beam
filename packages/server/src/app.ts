@@ -7,8 +7,10 @@
  *   • GET  /ws      — WebSocket signaling (+ encrypted relay), see SignalingHub
  *   • the built web app, when STATIC_DIR is set
  *
- * There is no upload route and no storage of payload data; relayed transfer
- * frames are end-to-end encrypted and only passed through.
+ *   • /store/*      — opt-in store-and-forward copies (when STORE_ENABLED)
+ *
+ * Relayed transfer frames and stored copies are end-to-end encrypted; the
+ * server never has a key.
  */
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
@@ -21,6 +23,8 @@ import type { RoomBackend } from './rooms/backend.js';
 import { MemoryBackend } from './rooms/memoryBackend.js';
 import { RedisBackend } from './rooms/redisBackend.js';
 import { serveApp } from './static.js';
+import { EncryptedStore, type StoreOptions } from './store/encryptedStore.js';
+import { storeRoutes } from './store/routes.js';
 
 export interface BuiltApp {
   app: FastifyInstance;
@@ -33,6 +37,8 @@ export interface BuildAppOptions {
   redis?: Redis;
   /** Override relay availability (defaults to config). */
   relayEnabled?: boolean;
+  /** Override store-and-forward settings (null disables it). */
+  store?: StoreOptions | null;
 }
 
 /** One sender plus this many receivers may share a room. */
@@ -40,6 +46,7 @@ const maxMembers = () => 1 + config.maxReceivers;
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp> {
   const app = Fastify({
+    trustProxy: config.trustProxy,
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
       transport:
@@ -81,8 +88,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   app.get('/health', async () => ({ status: 'ok', uptime: process.uptime() }));
 
+  const storeOptions = options.store === undefined ? config.store : (options.store ?? undefined);
+  let store: EncryptedStore | null = null;
+  if (storeOptions) {
+    store = new EncryptedStore(storeOptions);
+    await store.init();
+    await storeRoutes(app, { store, ownsRoom: (roomId, peerId, token) => hub.ownsRoom(roomId, peerId, token) });
+  }
+
   // The encryption key never reaches here — clients fetch ICE config only.
-  app.get('/ice', async () => ({ ...(await buildIceConfig()), relay: relayEnabled }));
+  app.get('/ice', async () => ({
+    ...(await buildIceConfig()),
+    relay: relayEnabled,
+    ...(store ? { store: store.limits } : {}),
+  }));
 
   // Reject WebSocket upgrades from disallowed browser origins. Browsers always
   // send an Origin header on WS, so this stops other websites from abusing the
@@ -103,6 +122,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   const close = async (): Promise<void> => {
     hub.close();
+    store?.close();
     await backend.close();
   };
 

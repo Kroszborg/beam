@@ -6,11 +6,13 @@
  * deployment uses TURN) are relay-only and never expose file data. The
  * response also says whether the server offers the WebSocket relay fallback.
  */
-import type { IceConfigResponse } from '@beam/shared';
+import type { IceConfigResponse, StoreLimits } from '@beam/shared';
 
 export interface IceConfig {
   iceServers: RTCIceServer[];
   relay: boolean;
+  /** Present when the server keeps store-and-forward copies. */
+  store?: StoreLimits;
 }
 
 export async function fetchIceConfig(signalingBaseUrl: string): Promise<IceConfig> {
@@ -18,7 +20,11 @@ export async function fetchIceConfig(signalingBaseUrl: string): Promise<IceConfi
     const res = await fetch(`${signalingBaseUrl.replace(/\/$/, '')}/ice`);
     if (!res.ok) throw new Error(`ICE config request failed: ${res.status}`);
     const body = (await res.json()) as IceConfigResponse;
-    return { iceServers: body.iceServers as RTCIceServer[], relay: body.relay === true };
+    return {
+      iceServers: body.iceServers as RTCIceServer[],
+      relay: body.relay === true,
+      ...(body.store ? { store: body.store } : {}),
+    };
   } catch {
     // Fall back to a public STUN server so local/dev still works offline-ish.
     return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }], relay: false };

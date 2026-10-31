@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ShieldCheck, Loader2, CheckCircle2, AlertTriangle, Users, KeyRound, RefreshCw } from 'lucide-react';
+import { ShieldCheck, Loader2, CheckCircle2, AlertTriangle, Users, KeyRound, RefreshCw, HardDrive, Trash2 } from 'lucide-react';
 import { PageShell } from '@/components/PageShell';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -81,8 +81,9 @@ function ShareAndProgress({
   const isError = sender.phase === 'error';
   const live = sender.receivers.filter((r) => r.state !== 'left');
   const busy = live.some((r) => r.state === 'connecting' || r.state === 'connected' || r.state === 'sending');
-  // Keep the tab alive while the link is shared: closing it ends the transfer.
-  useKeepAlive(!!sender.room && !isError);
+  // Keep the tab alive while the link is shared: closing it ends the transfer
+  // — unless an encrypted copy on the server has taken over.
+  useKeepAlive(!!sender.room && !isError && sender.copy?.state !== 'ready');
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
@@ -109,6 +110,7 @@ function ShareAndProgress({
                   <CopyButton value={sender.room.shareUrl} label="Copy link" />
                 </div>
                 <ShortCode sender={sender} />
+                <ServerCopy sender={sender} totalBytes={total} chunks={files.reduce((n, f) => n + Math.max(1, Math.ceil(f.size / (1024 * 1024))), 0)} />
                 <p className="text-xs leading-relaxed text-[var(--color-ink-faint)]">
                   {files.length} file{files.length === 1 ? '' : 's'} · {formatBytes(total)}. Keep this
                   tab open while people download — several can use the link at once. The key lives
@@ -171,6 +173,95 @@ function ShareAndProgress({
 
       <SecurityNote />
     </motion.div>
+  );
+}
+
+/**
+ * Optional store-and-forward: upload an encrypted copy so receivers can
+ * download after this tab is closed (or start before the upload finishes).
+ */
+function ServerCopy({
+  sender,
+  totalBytes,
+  chunks,
+}: {
+  sender: ReturnType<typeof useSenderSession>;
+  totalBytes: number;
+  chunks: number;
+}) {
+  const limits = sender.room?.storeLimits;
+  if (!limits) return null;
+  const copy = sender.copy;
+  const hours = Math.round(limits.ttlSeconds / 3600);
+  const cipherBytes = totalBytes + chunks * 16;
+
+  if (!copy || copy.state === 'deleted') {
+    if (cipherBytes > limits.maxBytes) {
+      return (
+        <p className="text-xs text-[var(--color-ink-faint)]">
+          Too large to keep a server copy (limit {formatBytes(limits.maxBytes)}) — keep this tab open.
+        </p>
+      );
+    }
+    return (
+      <div className="space-y-1.5">
+        <Button variant="secondary" size="sm" onClick={sender.keepCopy} data-testid="keep-copy">
+          <HardDrive className="h-4 w-4" />
+          Keep an encrypted copy for {hours} h
+        </Button>
+        <p className="text-xs leading-relaxed text-[var(--color-ink-faint)]">
+          So people can download after you close this tab. The server stores only ciphertext and
+          deletes it after {hours} hours.
+        </p>
+      </div>
+    );
+  }
+
+  const pct = copy.totalBytes ? Math.floor((copy.uploadedBytes / copy.totalBytes) * 100) : 0;
+  return (
+    <div data-testid="server-copy" data-state={copy.state} className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
+      <span className="eyebrow text-[var(--color-ink-faint)]">Server copy</span>
+      {copy.state === 'uploading' && (
+        <>
+          <p className="flex items-center gap-2 text-sm text-[var(--color-ink-soft)]">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Uploading encrypted copy… {pct}%
+          </p>
+          <div className="h-1 overflow-hidden rounded-full bg-white/[0.06]">
+            <div className="h-full bg-[var(--color-ink)] transition-[width]" style={{ width: `${pct}%` }} />
+          </div>
+          <p className="text-xs text-[var(--color-ink-faint)]">
+            Receivers can already start. Keep this tab open until it's done.
+          </p>
+        </>
+      )}
+      {copy.state === 'ready' && (
+        <p className="flex items-start gap-2 text-sm text-[var(--color-success)]">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Copy kept until {copy.expiresAt ? new Date(copy.expiresAt).toLocaleString() : 'it expires'}. You can
+            close this tab — the link keeps working.
+          </span>
+        </p>
+      )}
+      {copy.state === 'error' && <p className="text-sm text-[var(--color-danger)]">{copy.error}</p>}
+      <div className="flex flex-wrap gap-2">
+        {copy.state === 'error' && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void sender.removeCopy().then(sender.keepCopy)}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </Button>
+        )}
+        <Button variant="secondary" size="sm" onClick={() => void sender.removeCopy()}>
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete copy
+        </Button>
+      </div>
+    </div>
   );
 }
 

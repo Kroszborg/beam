@@ -65,7 +65,7 @@ export async function serveApp(app: FastifyInstance, dir: string): Promise<void>
     const read = req.method === 'GET' || req.method === 'HEAD';
     const path = req.url.split('?')[0]!;
     const looksLikeFile = /\.[a-z0-9]+$/i.test(path);
-    if (!read || looksLikeFile || path.startsWith('/ws') || path.startsWith('/__beam_dl/')) {
+    if (!read || looksLikeFile || path.startsWith('/ws') || path.startsWith('/store') || path.startsWith('/__beam') ) {
       return reply.code(404).send({ error: 'not found' });
     }
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) reply.header(k, v);

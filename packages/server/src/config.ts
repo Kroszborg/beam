@@ -47,6 +47,21 @@ const EnvSchema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+  // Store-and-forward: senders may opt to leave an encrypted copy on this
+  // server so receivers can download after they close the tab. Off unless
+  // enabled — it costs disk and bandwidth. Copies are ciphertext only.
+  STORE_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  STORE_DIR: z.string().default('./data/store'),
+  STORE_MAX_TRANSFER_MB: z.coerce.number().int().positive().default(2048),
+  STORE_MAX_TOTAL_MB: z.coerce.number().int().positive().default(10240),
+  STORE_TTL_HOURS: z.coerce.number().positive().default(24),
+  STORE_MAX_UPLOADS_PER_IP: z.coerce.number().int().positive().default(3),
+  // Which proxies to trust for the client IP (per-IP limits). "loopback"
+  // fits nginx/Caddy on the same host; "false" uses the socket address.
+  TRUST_PROXY: z.string().default('loopback'),
 });
 
 const parsed = EnvSchema.parse(process.env);
@@ -71,6 +86,14 @@ export interface ServerConfig {
   relayEnabled: boolean;
   sessionSecret: string;
   staticDir?: string;
+  store?: {
+    dir: string;
+    maxTransferBytes: number;
+    maxTotalBytes: number;
+    ttlSeconds: number;
+    maxActivePerIp: number;
+  };
+  trustProxy: string | boolean;
 }
 
 const turn =
@@ -95,4 +118,16 @@ export const config: ServerConfig = {
   relayEnabled: parsed.RELAY_ENABLED,
   sessionSecret: parsed.SESSION_SECRET ?? randomBytes(32).toString('hex'),
   ...(parsed.STATIC_DIR ? { staticDir: parsed.STATIC_DIR } : {}),
+  ...(parsed.STORE_ENABLED
+    ? {
+        store: {
+          dir: parsed.STORE_DIR,
+          maxTransferBytes: parsed.STORE_MAX_TRANSFER_MB * 1024 * 1024,
+          maxTotalBytes: parsed.STORE_MAX_TOTAL_MB * 1024 * 1024,
+          ttlSeconds: Math.round(parsed.STORE_TTL_HOURS * 3600),
+          maxActivePerIp: parsed.STORE_MAX_UPLOADS_PER_IP,
+        },
+      }
+    : {}),
+  trustProxy: parsed.TRUST_PROXY === 'false' ? false : parsed.TRUST_PROXY === 'true' ? true : parsed.TRUST_PROXY,
 };

@@ -1,4 +1,4 @@
-import { Wifi, Globe, Server, Radio } from 'lucide-react';
+import { Wifi, Globe, Server, Radio, HardDrive } from 'lucide-react';
 import type { Route } from '@/lib/webrtc';
 
 const ROUTES: Record<Route, { label: string; hint: string; Icon: typeof Wifi }> = {
@@ -9,6 +9,11 @@ const ROUTES: Record<Route, { label: string; hint: string; Icon: typeof Wifi }> 
     label: 'Via Beam relay',
     hint: "A direct connection wasn't possible, so the encrypted stream goes through the Beam server. It can't read it.",
     Icon: Server,
+  },
+  stored: {
+    label: 'From the server copy',
+    hint: 'The sender left an encrypted copy on the Beam server; you are downloading that. The server cannot read it.',
+    Icon: HardDrive,
   },
 };
 

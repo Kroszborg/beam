@@ -70,7 +70,16 @@ export function ReceiveFlow({ target, onRetry }: { target: ReceiveTarget | null;
                 </p>
               )}
 
-              {state === 'ready' && rx.manifest && <ChooseFiles manifest={rx.manifest} accept={rx.accept} />}
+              {state === 'ready' && rx.manifest && (
+                <>
+                  {route && (
+                    <div className="flex justify-end">
+                      <RouteBadge route={route} />
+                    </div>
+                  )}
+                  <ChooseFiles manifest={rx.manifest} accept={rx.accept} />
+                </>
+              )}
 
               {state === 'receiving' && (
                 <div className="space-y-4">
@@ -80,6 +89,12 @@ export function ReceiveFlow({ target, onRetry }: { target: ReceiveTarget | null;
                     </span>
                     <RouteBadge route={route} />
                   </div>
+                  {route === 'stored' && (
+                    <p className="text-xs leading-relaxed text-[var(--color-ink-faint)]">
+                      The sender is offline, so this comes from the encrypted copy they left on the
+                      server. It's decrypted here, in your browser.
+                    </p>
+                  )}
                   {progress && <ProgressView progress={progress} />}
                   <button
                     onClick={() => {

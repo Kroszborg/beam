@@ -20,6 +20,8 @@
  * ciphertext (plus chunk indices in the small control messages).
  */
 
+import type { StoreLimits } from './store.js';
+
 /** Role a client plays in a room. The sender is always the WebRTC offerer. */
 export type PeerRole = 'sender' | 'receiver';
 
@@ -108,6 +110,8 @@ export interface RoomJoinedMessage {
   peerId: string;
   /** The sender's peer id. */
   ownerId: string;
+  /** Whether the sender is connected right now. */
+  ownerPresent: boolean;
   token: string;
 }
 
@@ -235,4 +239,6 @@ export interface IceConfigResponse {
   iceServers: IceServerConfig[];
   /** Whether this server offers the WebSocket relay fallback. */
   relay?: boolean;
+  /** Present when the server can keep encrypted copies (store-and-forward). */
+  store?: StoreLimits;
 }

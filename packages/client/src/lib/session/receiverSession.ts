@@ -27,6 +27,8 @@ import {
 } from '../crypto/index.js';
 import { parseCode, MAX_CODE_ATTEMPTS } from '../codes.js';
 import { SignalingClient } from '../signaling/signalingClient.js';
+import { StoreApi } from '../store/storeApi.js';
+import { StoreTransport } from '../store/storeTransport.js';
 import {
   PeerConnection,
   RelayTransport,
@@ -58,6 +60,8 @@ type ReceiverSessionEvents = {
 
 /** How long to wait for any channel before surfacing an error. */
 const CONNECT_TIMEOUT_MS = 40_000;
+/** How long a departed sender gets to come back before we use their stored copy. */
+const STORE_FALLBACK_MS = 8_000;
 
 /** What the receiver starts from: a share link, or a typed short code. */
 export type ReceiveTarget = { roomId: string; keyFragment: string } | { code: string };
@@ -85,6 +89,10 @@ export class ReceiverSession {
   private pendingTransport: Transport | null = null;
   private pake: Cpace | null = null;
   private pakeKeys: PakeKeys | null = null;
+  private roomId = '';
+  /** Downloading the sender's stored copy instead of from the sender. */
+  private store: StoreTransport | null = null;
+  private storeTimer: ReturnType<typeof setTimeout> | null = null;
   /** Set by close(); start() checks it after every await so a session torn
    *  down mid-start (e.g. React StrictMode remount) never joins the room. */
   private closed = false;
@@ -130,22 +138,36 @@ export class ReceiverSession {
       ? this.deps.createSignaling(this.signalingUrl)
       : new SignalingClient(this.signalingUrl);
     this.signaling = signaling;
-    let roomId: string;
+    let roomId = 'roomId' in target ? target.roomId : '';
+    this.roomId = roomId;
     let selfId: string;
+    let ownerPresent = true;
     try {
       await signaling.connect();
       if (this.closed) return signaling.close();
-      roomId = 'roomId' in target ? target.roomId : await signaling.resolveCode(nameplate!);
+      if (!roomId) roomId = this.roomId = await signaling.resolveCode(nameplate!);
       if (this.closed) return signaling.close();
       const room = await signaling.joinRoom(roomId);
       if (this.closed) return signaling.close();
       this.ownerId = room.ownerId;
       selfId = room.peerId;
+      ownerPresent = room.ownerPresent;
     } catch (err) {
+      // The room is gone (the sender closed their tab) — but they may have
+      // left an encrypted copy on the server.
+      if (rawKey && (err as { code?: string }).code === 'room-not-found') {
+        await this.useKey(rawKey);
+        this.setState('connecting');
+        if (await this.tryStore()) return;
+      }
       return this.fail((err as Error).message);
     }
 
     this.setState('connecting');
+    if (rawKey && !ownerPresent) {
+      await this.useKey(rawKey);
+      if (await this.tryStore()) return;
+    }
     this.createPeer();
 
     signaling.on('signal', ({ from, data }) => {
@@ -156,14 +178,16 @@ export class ReceiverSession {
     });
 
     // The sender's socket dropped. Its WebRTC link to us may well be fine, so
-    // only note it; if the link is down too, the sender will re-offer when back.
+    // only note it; if the link is down too, the sender will re-offer when
+    // back — or, if they don't, we switch to their stored copy (if any).
     signaling.on('peer-left', ({ peerId }) => {
       if (peerId !== this.ownerId) return;
       if (this.transport?.readyState !== 'open') this.emitter.emit('waiting', true);
+      this.scheduleStoreFallback();
     });
 
     if (rawKey) {
-      await this.useKey(rawKey);
+      if (!this.receiver) await this.useKey(rawKey);
       signaling.sendSignal({ kind: 'auth', proof: authProof(rawKey, roomId, selfId) });
     } else {
       this.pake = new Cpace(password!, pakeSid(roomId, this.ownerId!, selfId), 'receiver');
@@ -171,12 +195,43 @@ export class ReceiverSession {
     }
 
     this.connectTimer = setTimeout(() => {
-      if (!this.transport && this.state === 'connecting') {
-        this.fail(
-          "Couldn't connect to the sender. They may have closed the tab or be on a restrictive network — ask them to reopen the page and try again.",
-        );
-      }
+      if (this.transport || this.state !== 'connecting') return;
+      void this.tryStore().then((stored) => {
+        if (!stored && !this.transport) {
+          this.fail(
+            "Couldn't connect to the sender. They may have closed the tab or be on a restrictive network — ask them to reopen the page and try again.",
+          );
+        }
+      });
     }, CONNECT_TIMEOUT_MS);
+  }
+
+  /** If the sender doesn't come back soon, continue from their stored copy. */
+  private scheduleStoreFallback(): void {
+    if (this.storeTimer || this.store || !this.receiver) return;
+    this.storeTimer = setTimeout(() => {
+      this.storeTimer = null;
+      if (this.isDone() || this.store || this.transport?.readyState === 'open') return;
+      void this.tryStore();
+    }, this.deps.storeFallbackMs ?? STORE_FALLBACK_MS);
+  }
+
+  /** Switch to the server copy if there is a usable one. */
+  private async tryStore(): Promise<boolean> {
+    if (!this.receiver || this.store || this.isDone() || this.closed) return false;
+    const api = this.deps.store ?? new StoreApi(this.signalingUrl);
+    const info = await api.info(this.roomId);
+    if (!info || info.abandoned || this.store || this.closed) return false;
+    if (this.connectTimer) clearTimeout(this.connectTimer);
+    this.pc?.close();
+    this.pc = null;
+    this.relay?.close();
+    this.relay = null;
+    const store = new StoreTransport(api, this.roomId, (message) => this.fail(message));
+    this.store = store;
+    this.attach(store);
+    this.emitter.emit('route', 'stored');
+    return true;
   }
 
   private async onOwnerSignal(data: SignalPayload): Promise<void> {
@@ -279,12 +334,13 @@ export class ReceiverSession {
     this.transport = transport;
     this.emitter.emit('waiting', false);
     transport.onClose(() => {
-      if (this.transport !== transport || this.isDone()) return;
+      if (this.transport !== transport || this.isDone() || transport === this.store) return;
       this.transport = null;
       this.emitter.emit('waiting', true);
       if (transport === this.relay) this.relay = null;
-      // Ready for the sender's next offer (or relay signal).
+      // Ready for the sender's next offer (or relay signal) — or their copy.
       this.createPeer();
+      this.scheduleStoreFallback();
     });
     if (this.receiver) this.receiver.attach(transport);
     else this.pendingTransport = transport;
@@ -320,6 +376,8 @@ export class ReceiverSession {
   close(): void {
     this.closed = true;
     if (this.connectTimer) clearTimeout(this.connectTimer);
+    if (this.storeTimer) clearTimeout(this.storeTimer);
+    this.store?.close();
     this.relay?.close();
     this.pc?.close();
     this.signaling?.close();

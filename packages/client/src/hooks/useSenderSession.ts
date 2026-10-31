@@ -11,6 +11,7 @@ import {
   type SenderRoomInfo,
   type SenderCode,
 } from '@/lib/session/senderSession';
+import type { CopyStatus } from '@/lib/store/storeUploader';
 import { SIGNALING_URL } from '@/config/env';
 
 export interface UseSender {
@@ -19,7 +20,11 @@ export interface UseSender {
   receivers: ReceiverStatus[];
   error: string | null;
   code: SenderCode | null;
+  /** The encrypted server copy (store-and-forward), if one was started. */
+  copy: CopyStatus | null;
   start: (files: File[]) => void;
+  keepCopy: () => void;
+  removeCopy: () => Promise<void>;
   /** Make (or replace) a short code; resolves when it's shown. */
   createCode: () => Promise<void>;
 }
@@ -31,6 +36,7 @@ export function useSenderSession(): UseSender {
   const [receivers, setReceivers] = useState<ReceiverStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState<SenderCode | null>(null);
+  const [copy, setCopy] = useState<CopyStatus | null>(null);
 
   useEffect(() => {
     return () => sessionRef.current?.close();
@@ -46,6 +52,7 @@ export function useSenderSession(): UseSender {
     session.on('room', setRoom);
     session.on('receivers', setReceivers);
     session.on('code', setCode);
+    session.on('copy', setCopy);
     session.on('error', (msg) => {
       setError(msg);
       setPhase('error');
@@ -60,5 +67,14 @@ export function useSenderSession(): UseSender {
     await sessionRef.current?.createCode();
   }, []);
 
-  return { phase, room, receivers, error, code, start, createCode };
+  const keepCopy = useCallback(() => {
+    sessionRef.current?.keepCopy();
+  }, []);
+
+  const removeCopy = useCallback(async () => {
+    await sessionRef.current?.removeCopy();
+    setCopy(null);
+  }, []);
+
+  return { phase, room, receivers, error, code, copy, start, createCode, keepCopy, removeCopy };
 }

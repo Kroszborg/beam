@@ -9,9 +9,12 @@ import {
   FakePeer,
   FakeServer,
   FakeSignaling,
+  FakeStore,
   MemorySink,
   bytes,
 } from '../testing/fakes.js';
+import type { StoreApi } from '../store/storeApi.js';
+import type { CopyStatus } from '../store/storeUploader.js';
 
 /**
  * SenderSession / ReceiverSession orchestration with fake signaling and peer
@@ -26,7 +29,10 @@ function world() {
   const server = new FakeServer();
   const net = new FakeNetwork();
   const sinks: MemorySink[] = [];
+  const store = new FakeStore();
   const deps: SessionDeps = {
+    store: store as unknown as StoreApi,
+    storeFallbackMs: 30,
     createSignaling: () => new FakeSignaling(server) as unknown as SignalingClient,
     createPeer: (role, remoteId, signaling, _ice) =>
       new FakePeer(role, (signaling as unknown as FakeSignaling).peerId, remoteId, net) as unknown as PeerConnection,
@@ -38,7 +44,7 @@ function world() {
       return sink;
     },
   };
-  return { net, sinks, deps };
+  return { net, sinks, deps, store };
 }
 
 async function until(cond: () => boolean, ms = 8000): Promise<void> {
@@ -55,11 +61,13 @@ async function startSender(deps: SessionDeps, files: File[]) {
   let receivers: ReceiverStatus[] = [];
   sender.on('room', (r) => (room = r));
   let code: SenderCode | null = null;
+  let copy: CopyStatus | null = null;
+  sender.on('copy', (c) => (copy = c));
   sender.on('receivers', (r) => (receivers = r));
   sender.on('code', (c) => (code = c));
   await sender.start(files);
   await until(() => room !== null);
-  return { sender, room: room!, receivers: () => receivers, code: () => code };
+  return { sender, room: room!, receivers: () => receivers, code: () => code, copy: () => copy };
 }
 
 function linkTarget(room: SenderRoomInfo): ReceiveTarget {
@@ -164,6 +172,58 @@ describe('sessions', () => {
     const r = await startReceiver(deps, forged);
     expect(r.error()).toMatch(/couldn't verify/);
     expect(s.receivers()).toEqual([]);
+  });
+
+  it('downloads the stored copy after the sender has closed the tab', async () => {
+    const { deps, sinks } = world();
+    const data = bytes(3 * MB + 77, 8);
+    const s = await startSender(deps, [new File([data], 'kept.bin')]);
+    s.sender.keepCopy();
+    await until(() => s.copy()?.state === 'ready');
+    expect(s.copy()!.uploadedBytes).toBe(s.copy()!.totalBytes);
+    s.sender.close(); // tab closed: the room is gone
+
+    const r = await startReceiver(deps, s.room);
+    expect(r.error()).toBeNull();
+    expect(r.route()).toBe('stored');
+    await r.rx.accept([0], 'idb');
+    await until(r.complete);
+    expect(same(sinks[0]!.data.get(0), data)).toBe(true);
+  });
+
+  it('switches to the stored copy when the sender leaves mid-transfer, resuming from the gap', async () => {
+    const { deps, sinks } = world();
+    const data = bytes(48 * MB, 9); // more than the 32-chunk window, so the copy must finish it
+    const s = await startSender(deps, [new File([data], 'mid.bin')]);
+    s.sender.keepCopy();
+    await until(() => s.copy()?.state === 'ready');
+
+    const r = await startReceiver(deps, s.room);
+    expect(r.route()).toBe('lan');
+    await r.rx.accept([0], 'idb');
+    await until(() => sinks[0]!.writes >= 3);
+    s.sender.close();
+    await until(r.complete);
+    expect(r.route()).toBe('stored');
+    expect(same(sinks[0]!.data.get(0), data)).toBe(true);
+    expect(sinks[0]!.writes).toBe(48); // nothing written twice
+  });
+
+  it('streams from the copy while it is still uploading', async () => {
+    const { deps, sinks, store } = world();
+    store.uploadDelayMs = 15;
+    const data = bytes(6 * MB, 10);
+    const s = await startSender(deps, [new File([data], 'live.bin')]);
+    s.sender.keepCopy();
+    await until(() => (s.copy()?.uploadedBytes ?? 0) > 0);
+    s.sender.close();
+
+    const r = await startReceiver(deps, s.room);
+    expect(r.route()).toBe('stored');
+    expect(store.copies.values().next().value!.complete).toBe(false);
+    await r.rx.accept([0], 'idb');
+    await until(r.complete);
+    expect(same(sinks[0]!.data.get(0), data)).toBe(true);
   });
 
   it('renegotiates and resumes when the direct channel drops mid-transfer', async () => {

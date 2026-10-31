@@ -310,6 +310,36 @@ test('a wrong short code is refused', async ({ browser }) => {
   }
 });
 
+test('stored copy after the sender closed the tab (store-and-forward)', async ({ browser, baseURL }) => {
+  // Dev runs the API on :8787; a deployed site serves it from the same origin.
+  const api = process.env.BEAM_SIGNALING_URL ?? baseURL!.replace(':5173', ':8787');
+  const res = await fetch(new URL('/ice', api));
+  const ice = (await res.json()) as { store?: unknown };
+  test.skip(!ice.store, 'server has STORE_ENABLED=false');
+  const path = await makeFile('kept.bin', 5.5, 21);
+  const digest = await sha256File(path);
+  const sctx = await browser.newContext();
+  const { page: sender, url } = await openSender(sctx, [path]);
+  await sender.getByTestId('keep-copy').click();
+  await expect(sender.getByTestId('server-copy')).toHaveAttribute('data-state', 'ready', { timeout: 60_000 });
+  await sctx.close(); // the sender is gone
+
+  const rctx = await browser.newContext({ acceptDownloads: true });
+  try {
+    const rx = await openReceiver(rctx, url, 'stream');
+    await expect(rx.getByTestId('route').first()).toHaveAttribute('data-route', 'stored');
+    const [download] = await Promise.all([
+      rx.waitForEvent('download', { timeout: 60_000 }),
+      rx.getByRole('button', { name: /^(download|save)/i }).click(),
+    ]);
+    const saved = join(dir, `stored-${download.suggestedFilename()}`);
+    await download.saveAs(saved);
+    expect(await sha256File(saved)).toBe(digest);
+  } finally {
+    await rctx.close();
+  }
+});
+
 test('server relay fallback', async ({ browser }) => {
   await transfer(browser, [{ name: 'relayed.bin', mb: 30 }], {
     sink: 'stream',

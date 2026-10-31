@@ -142,6 +142,13 @@ export class SignalingHub {
       .digest('base64url');
   }
 
+  /** Does `token` prove `peerId` is the sender of `roomId`? (store-and-forward) */
+  ownsRoom(roomId: string, peerId: string, token: string): boolean {
+    const expected = Buffer.from(this.token(roomId, peerId, 'sender'));
+    const given = Buffer.from(token);
+    return expected.length === given.length && timingSafeEqual(expected, given);
+  }
+
   /** Register a freshly-opened socket and wire up its lifecycle handlers. */
   handleConnection(socket: WebSocket): void {
     const peer: Peer = {
@@ -261,6 +268,7 @@ export class SignalingHub {
       role: 'receiver',
       peerId: peer.peerId,
       ownerId: result.room.owner,
+      ownerPresent: result.room.members.includes(result.room.owner),
       token: this.token(roomId, peer.peerId, 'receiver'),
     });
 

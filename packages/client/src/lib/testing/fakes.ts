@@ -145,12 +145,12 @@ export class FakeServer {
     this.rooms.set(roomId, { owner: c.peerId, members: new Map([[c.peerId, c]]) });
     return roomId;
   }
-  join(roomId: string, c: FakeSignaling): string {
+  join(roomId: string, c: FakeSignaling): { owner: string; ownerPresent: boolean } {
     const room = this.rooms.get(roomId);
-    if (!room) throw new Error('This link has expired.');
+    if (!room) throw Object.assign(new Error('This link has expired.'), { code: 'room-not-found' });
     room.members.set(c.peerId, c);
     room.members.get(room.owner)?.emit('peer-joined', { peerId: c.peerId });
-    return room.owner;
+    return { owner: room.owner, ownerPresent: room.members.has(room.owner) };
   }
   deliver(roomId: string, to: string, fn: (c: FakeSignaling) => void): void {
     const c = this.rooms.get(roomId)?.members.get(to);
@@ -160,6 +160,7 @@ export class FakeServer {
     const room = this.rooms.get(roomId);
     if (!room) return;
     room.members.delete(c.peerId);
+    if (room.members.size === 0) this.rooms.delete(roomId);
     const notify = c.peerId === room.owner ? [...room.members.values()] : [room.members.get(room.owner)];
     for (const m of notify) m?.emit('peer-left', { peerId: c.peerId });
   }
@@ -182,7 +183,7 @@ export class FakeSignaling {
   async createRoom() {
     this.roomId = this.server.create(this);
     this.ownerId = this.peerId;
-    return { roomId: this.roomId, peerId: this.peerId, role: 'sender' as const, ownerId: this.peerId };
+    return { roomId: this.roomId, peerId: this.peerId, role: 'sender' as const, ownerId: this.peerId, ownerPresent: true };
   }
   async createCode(): Promise<string> {
     const nameplate = String(this.server.codes.size + 7);
@@ -194,10 +195,14 @@ export class FakeSignaling {
     if (!roomId) throw new Error('No transfer with that code. Check the number and try again.');
     return roomId;
   }
+  get token(): string {
+    return `token-${this.peerId}`;
+  }
   async joinRoom(roomId: string) {
-    this.ownerId = this.server.join(roomId, this);
+    const { owner, ownerPresent } = this.server.join(roomId, this);
+    this.ownerId = owner;
     this.roomId = roomId;
-    return { roomId, peerId: this.peerId, role: 'receiver' as const, ownerId: this.ownerId };
+    return { roomId, peerId: this.peerId, role: 'receiver' as const, ownerId: owner, ownerPresent };
   }
   sendSignal(data: SignalPayload, to?: string): void {
     const target = to ?? this.ownerId!;
@@ -246,6 +251,8 @@ export class FakePeer {
   private offered = false;
   /** A receiver answers one offer; later ones go to a fresh FakePeer. */
   private used = false;
+  /** Our end of the channel; closing the peer closes it, like a real one. */
+  private channel: PairedTransport | null = null;
 
   constructor(
     private readonly role: 'sender' | 'receiver',
@@ -269,6 +276,8 @@ export class FakePeer {
     this.offered = false;
     const [a, b] = makePair();
     this.net.pairs.push([a, b]);
+    this.channel = a;
+    other.channel = b;
     queueMicrotask(() => {
       this.emitter.emit('channel-open', a);
       other.emitter.emit('channel-open', b);
@@ -281,5 +290,74 @@ export class FakePeer {
   close(): void {
     this.closed = true;
     this.emitter.clear();
+    this.channel?.close();
+  }
+}
+
+// ── Store-and-forward ─────────────────────────────────────────
+
+/**
+ * In-memory stand-in for the server's store, with the StoreApi surface.
+ * `wait` reads poll briefly, like the real long-poll.
+ */
+export class FakeStore {
+  readonly copies = new Map<
+    string,
+    { token: string; totalChunks: number; manifest: Uint8Array | null; chunks: Map<number, Uint8Array>; complete: boolean }
+  >();
+  /** Delay every chunk upload by this long (to observe download-while-uploading). */
+  uploadDelayMs = 0;
+  private n = 0;
+
+  async create(req: { roomId: string; totalChunks: number }) {
+    const token = `upload-${this.n++}`;
+    this.copies.set(req.roomId, { token, totalChunks: req.totalChunks, manifest: null, chunks: new Map(), complete: false });
+    return { uploadToken: token, expiresAt: Date.now() + 3600_000 };
+  }
+  private own(id: string, token: string) {
+    const c = this.copies.get(id);
+    if (!c || c.token !== token) throw new Error('forbidden');
+    return c;
+  }
+  async putManifest(id: string, token: string, data: Uint8Array) {
+    this.own(id, token).manifest = data.slice();
+  }
+  async putChunk(id: string, token: string, index: number, data: Uint8Array) {
+    if (this.uploadDelayMs) await new Promise((r) => setTimeout(r, this.uploadDelayMs));
+    this.own(id, token).chunks.set(index, data.slice());
+  }
+  async complete(id: string, token: string) {
+    this.own(id, token).complete = true;
+  }
+  async remove(id: string, token: string) {
+    this.own(id, token);
+    this.copies.delete(id);
+  }
+  async info(id: string) {
+    const c = this.copies.get(id);
+    if (!c) return null;
+    return {
+      totalChunks: c.totalChunks,
+      have: c.chunks.size,
+      manifest: c.manifest !== null,
+      complete: c.complete,
+      abandoned: false,
+      expiresAt: Date.now() + 3600_000,
+    };
+  }
+  async manifest(id: string) {
+    const c = this.copies.get(id);
+    if (!c) throw Object.assign(new Error('gone'), { status: 404 });
+    return c.manifest;
+  }
+  async chunk(id: string, index: number, wait: boolean) {
+    for (let waited = 0; ; waited += 5) {
+      const c = this.copies.get(id);
+      if (!c) throw Object.assign(new Error('gone'), { status: 404 });
+      const data = c.chunks.get(index);
+      if (data) return data.slice();
+      if (!wait || waited >= 200) return null;
+      await new Promise((r) => setTimeout(r, 5));
+    }
   }
 }
