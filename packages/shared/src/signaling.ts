@@ -3,16 +3,31 @@
  * browser and the Beam signaling server.
  *
  * The server is a *blind relay*: it creates/joins rooms, tracks presence,
- * and forwards opaque `signal` payloads (SDP + ICE) between the two members
- * of a room. It never inspects or stores SDP/ICE beyond routing, and it
- * never sees file bytes or encryption keys.
+ * and forwards opaque `signal` payloads (SDP + ICE) between members of a
+ * room. It never inspects SDP/ICE beyond routing, and never sees keys.
  *
- * Every message is a discriminated union on `type`, so both ends get
- * exhaustive type-checking.
+ * A room has one sender (its owner) and up to N receivers. Every peer gets a
+ * server-assigned `peerId`; the sender addresses signals to a specific
+ * receiver with `to`, receivers' signals always go to the owner.
+ *
+ * ── Relay fallback ────────────────────────────────────────────
+ * When a direct WebRTC connection can't be made (and no TURN server helps),
+ * peers can tunnel the transfer through this same WebSocket as binary
+ * messages: [peerId (16 ASCII bytes)][kind (1 byte)][payload]. The client
+ * puts the destination peer id in front; the server swaps it for the source
+ * peer id before delivery. The payload is the same end-to-end encrypted
+ * stream that would have gone over WebRTC, so the server still sees only
+ * ciphertext (plus chunk indices in the small control messages).
  */
 
 /** Role a client plays in a room. The sender is always the WebRTC offerer. */
 export type PeerRole = 'sender' | 'receiver';
+
+export const PEER_ID_LENGTH = 16;
+/** Relay frame kinds (byte after the peer id). */
+export const RELAY_KIND_TEXT = 0;
+export const RELAY_KIND_BINARY = 1;
+export const RELAY_HEADER_BYTES = PEER_ID_LENGTH + 1;
 
 // ── Client → Server ───────────────────────────────────────────
 
@@ -28,19 +43,32 @@ export interface JoinRoomMessage {
 }
 
 /**
- * Opaque signaling payload to relay to the other peer in the room.
- * `data` is an SDP offer/answer or an ICE candidate — the server does not
- * parse it.
+ * Opaque signaling payload to relay. Receivers omit `to` (it goes to the
+ * sender); the sender must name the receiver.
  */
 export interface SignalMessage {
   type: 'signal';
   roomId: string;
+  to?: string;
   data: SignalPayload;
+}
+
+/**
+ * Re-attach to a room after the WebSocket dropped, keeping the same peer id.
+ * `token` is the one issued with room-created / room-joined.
+ */
+export interface RejoinRoomMessage {
+  type: 'rejoin-room';
+  roomId: string;
+  peerId: string;
+  role: PeerRole;
+  token: string;
 }
 
 export type ClientToServerMessage =
   | CreateRoomMessage
   | JoinRoomMessage
+  | RejoinRoomMessage
   | SignalMessage;
 
 // ── Server → Client ───────────────────────────────────────────
@@ -50,31 +78,49 @@ export interface RoomCreatedMessage {
   type: 'room-created';
   roomId: string;
   role: PeerRole; // 'sender'
+  peerId: string;
+  /** Proof of identity for `rejoin-room` after a reconnect. */
+  token: string;
 }
 
-/** Confirms a successful join and tells the receiver its role. */
+/** Confirms a successful join. */
 export interface RoomJoinedMessage {
   type: 'room-joined';
   roomId: string;
   role: PeerRole; // 'receiver'
+  peerId: string;
+  /** The sender's peer id. */
+  ownerId: string;
+  token: string;
 }
 
-/** Presence: the other peer joined the room. Triggers WebRTC offer. */
+/** Confirms a rejoin; `members` lets the sender reconcile who is still here. */
+export interface RoomRejoinedMessage {
+  type: 'room-rejoined';
+  roomId: string;
+  ownerId: string;
+  members: string[];
+}
+
+/** Presence: a peer joined the room. Triggers the sender's WebRTC offer. */
 export interface PeerJoinedMessage {
   type: 'peer-joined';
   roomId: string;
+  peerId: string;
 }
 
-/** Presence: the other peer left / disconnected. Triggers resume handling. */
+/** Presence: a peer left / disconnected. */
 export interface PeerLeftMessage {
   type: 'peer-left';
   roomId: string;
+  peerId: string;
 }
 
-/** Relayed signaling payload from the other peer. */
+/** Relayed signaling payload from another peer. */
 export interface RelayedSignalMessage {
   type: 'signal';
   roomId: string;
+  from: string;
   data: SignalPayload;
 }
 
@@ -88,6 +134,7 @@ export interface ErrorMessage {
 export type ServerToClientMessage =
   | RoomCreatedMessage
   | RoomJoinedMessage
+  | RoomRejoinedMessage
   | PeerJoinedMessage
   | PeerLeftMessage
   | RelayedSignalMessage
@@ -95,10 +142,14 @@ export type ServerToClientMessage =
 
 // ── Shared payloads ───────────────────────────────────────────
 
-/** SDP description or ICE candidate, distinguished by `kind`. */
+/**
+ * SDP description, ICE candidate, or a switch to the WebSocket relay
+ * (sent by the sender when the direct connection didn't come up in time).
+ */
 export type SignalPayload =
   | { kind: 'sdp'; description: RTCSessionDescriptionInitLike }
-  | { kind: 'ice'; candidate: RTCIceCandidateInitLike | null };
+  | { kind: 'ice'; candidate: RTCIceCandidateInitLike | null }
+  | { kind: 'relay' };
 
 /**
  * Minimal structural mirror of the browser DTOs so @beam/shared stays free
@@ -121,6 +172,7 @@ export type SignalingErrorCode =
   | 'room-full'
   | 'invalid-message'
   | 'not-in-room'
+  | 'rate-limited'
   | 'internal-error';
 
 /** ICE server configuration handed to clients from `GET /ice`. */
@@ -132,4 +184,6 @@ export interface IceServerConfig {
 
 export interface IceConfigResponse {
   iceServers: IceServerConfig[];
+  /** Whether this server offers the WebSocket relay fallback. */
+  relay?: boolean;
 }

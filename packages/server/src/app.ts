@@ -1,13 +1,14 @@
 /**
  * Fastify application wiring.
  *
- * Exposes exactly three surfaces:
+ * Exposes:
  *   • GET  /health  — liveness probe
  *   • GET  /ice     — ICE server config (STUN, plus TURN when configured)
- *   • GET  /ws      — WebSocket signaling endpoint (handled by SignalingHub)
+ *   • GET  /ws      — WebSocket signaling (+ encrypted relay), see SignalingHub
+ *   • the built web app, when STATIC_DIR is set
  *
- * Everything file- or key-related is intentionally absent: this server has no
- * upload route and no storage of payload data.
+ * There is no upload route and no storage of payload data; relayed transfer
+ * frames are end-to-end encrypted and only passed through.
  */
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
@@ -16,17 +17,26 @@ import { Redis } from 'ioredis';
 import { config } from './config.js';
 import { buildIceConfig } from './ice/iceConfig.js';
 import { SignalingHub } from './ws/signaling.js';
+import type { RoomBackend } from './rooms/backend.js';
+import { MemoryBackend } from './rooms/memoryBackend.js';
+import { RedisBackend } from './rooms/redisBackend.js';
+import { serveApp } from './static.js';
 
 export interface BuiltApp {
   app: FastifyInstance;
-  /** Tear down Redis connections on shutdown. */
+  /** Tear down backend connections on shutdown. */
   close: () => Promise<void>;
 }
 
 export interface BuildAppOptions {
-  /** Inject a Redis instance (e.g. a mock in tests). Defaults to a real client. */
+  /** Inject a Redis instance (e.g. a mock in tests) to use the Redis backend. */
   redis?: Redis;
+  /** Override relay availability (defaults to config). */
+  relayEnabled?: boolean;
 }
+
+/** One sender plus this many receivers may share a room. */
+const maxMembers = () => 1 + config.maxReceivers;
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp> {
   const app = Fastify({
@@ -39,20 +49,30 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     },
   });
 
-  // Redis publisher (the hub duplicates this for its subscriber connection).
-  const redis = options.redis ?? new Redis(config.redisUrl, { lazyConnect: false });
-  redis.on('error', (err) => app.log.error(err, 'redis error'));
+  let backend: RoomBackend;
+  const redisUrl = config.redisUrl;
+  if (options.redis || redisUrl) {
+    const redis = options.redis ?? new Redis(redisUrl!, { lazyConnect: false });
+    redis.on('error', (err) => app.log.error(err, 'redis error'));
+    backend = new RedisBackend(redis, config.roomTtlSeconds, maxMembers());
+  } else {
+    app.log.info('REDIS_URL not set — using in-memory rooms (single instance)');
+    backend = new MemoryBackend(config.roomTtlSeconds, maxMembers());
+  }
 
-  const hub = new SignalingHub(redis, config.roomTtlSeconds, app.log);
+  const relayEnabled = options.relayEnabled ?? config.relayEnabled;
+  const hub = new SignalingHub(backend, { relayEnabled, secret: config.sessionSecret, log: app.log });
 
   await app.register(cors, {
     origin: config.corsOrigins.length > 0 ? config.corsOrigins : true,
   });
-  await app.register(websocket);
+  // Relay frames are ≤ 64 KiB plus a small header; anything far larger is abuse.
+  await app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
   // The signaling server is an API, not the website. A friendly root response
   // avoids confusion when someone opens http://localhost:8787 in a browser.
-  app.get('/', async () => ({
+  if (config.staticDir) await serveApp(app, config.staticDir);
+  else app.get('/', async () => ({
     service: 'beam-signaling',
     status: 'ok',
     note: 'This is the Beam signaling API. The app runs on the client (default http://localhost:5173).',
@@ -62,7 +82,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   app.get('/health', async () => ({ status: 'ok', uptime: process.uptime() }));
 
   // The encryption key never reaches here — clients fetch ICE config only.
-  app.get('/ice', async () => buildIceConfig());
+  app.get('/ice', async () => ({ ...(await buildIceConfig()), relay: relayEnabled }));
 
   // Reject WebSocket upgrades from disallowed browser origins. Browsers always
   // send an Origin header on WS, so this stops other websites from abusing the
@@ -82,8 +102,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   });
 
   const close = async (): Promise<void> => {
-    await hub.close();
-    await redis.quit();
+    hub.close();
+    await backend.close();
   };
 
   return { app, close };

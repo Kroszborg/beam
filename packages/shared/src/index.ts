@@ -7,4 +7,4 @@
  */
 export * from './crypto.js';
 export * from './signaling.js';
-export * from './protocol.js';
+export * from './transfer.js';
