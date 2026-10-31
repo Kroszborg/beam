@@ -63,7 +63,10 @@ export function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
         type="file"
         multiple
         hidden
-        onChange={(e) => e.target.files && onFiles(Array.from(e.target.files))}
+        onChange={(e) => {
+          if (e.target.files) onFiles(Array.from(e.target.files));
+          e.target.value = ''; // allow picking the same file again
+        }}
       />
       <input
         ref={folderInput}
@@ -73,7 +76,10 @@ export function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
         webkitdirectory=""
         directory=""
         multiple
-        onChange={(e) => e.target.files && onFiles(Array.from(e.target.files))}
+        onChange={(e) => {
+          if (e.target.files) onFiles(Array.from(e.target.files));
+          e.target.value = ''; // allow picking the same file again
+        }}
       />
     </div>
   );

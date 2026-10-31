@@ -6,7 +6,7 @@ import { DEV_INFO } from '@/config/dev';
 const NAV = [
   { href: '/#how', label: 'How it works' },
   { href: '/#faq', label: 'FAQ' },
-  { href: '/#support', label: 'Support' },
+  { href: '/#about', label: 'About' },
 ];
 
 /** Shared page chrome: minimal header, centered column, quiet footer. */

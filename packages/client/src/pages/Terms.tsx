@@ -3,7 +3,7 @@ import { DEV_INFO } from '@/config/dev';
 
 export function TermsPage() {
   return (
-    <LegalLayout title="Terms of Service" updated="June 2026">
+    <LegalLayout title="Terms of Service" updated="October 2026">
       <p className="text-[0.95rem] leading-relaxed text-[var(--color-ink-soft)]">
         By using Beam you agree to these terms. Beam is a free tool for transferring files directly
         between devices. Please use it responsibly.
@@ -11,9 +11,10 @@ export function TermsPage() {
 
       <LegalSection title="The service">
         <p>
-          Beam helps two devices establish a direct, end-to-end encrypted connection to transfer
-          files. Both the sender and receiver must be online with the share link for a transfer to
-          occur. Beam does not store your files and cannot recover or resend them.
+          Beam helps a sender and one or more receivers establish an end-to-end encrypted connection
+          to transfer files — directly between devices where possible, or through an encrypted relay
+          when networks block a direct path. The sender must keep the page open for the transfer to
+          happen. Beam does not store your files and cannot recover or resend them.
         </p>
       </LegalSection>
 
@@ -21,7 +22,9 @@ export function TermsPage() {
         <p>
           You are solely responsible for the files you transfer and for ensuring you have the right
           to share them. Do not use Beam to transfer unlawful material or to infringe anyone's
-          rights. Do not attempt to disrupt, overload, or abuse the signaling service.
+          rights. Do not attempt to disrupt, overload, or abuse the signaling or relay service; we
+          may rate-limit or block traffic that does. You are responsible for who you give a share
+          link to — anyone holding it can receive the files.
         </p>
       </LegalSection>
 
@@ -38,13 +41,6 @@ export function TermsPage() {
           To the maximum extent permitted by law, the developer is not liable for any loss or damage
           arising from your use of Beam, including failed transfers, lost data, or interrupted
           connections.
-        </p>
-      </LegalSection>
-
-      <LegalSection title="Donations">
-        <p>
-          Crypto donations are voluntary, non-refundable, and grant no special rights, support
-          guarantees, or ownership. They simply help fund continued development.
         </p>
       </LegalSection>
 

@@ -1,7 +1,7 @@
 import { ShieldCheck, Lock, KeyRound, ServerOff } from 'lucide-react';
 
 const POINTS = [
-  { icon: ServerOff, text: 'Files never touch servers' },
+  { icon: ServerOff, text: 'No uploads, no storage' },
   { icon: Lock, text: 'AES-256-GCM end-to-end' },
   { icon: KeyRound, text: 'Keys stay in your browser' },
   { icon: ShieldCheck, text: 'Integrity verified per chunk' },

@@ -4,23 +4,27 @@
  * — this hook is a thin adapter.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SenderSession, type SenderRoomInfo } from '@/lib/session/senderSession';
-import type { SenderState, TransferProgress } from '@/lib/transfer';
+import {
+  SenderSession,
+  type ReceiverStatus,
+  type SenderPhase,
+  type SenderRoomInfo,
+} from '@/lib/session/senderSession';
 import { SIGNALING_URL } from '@/config/env';
 
 export interface UseSender {
-  state: SenderState;
-  progress: TransferProgress | null;
+  phase: SenderPhase;
   room: SenderRoomInfo | null;
+  receivers: ReceiverStatus[];
   error: string | null;
   start: (files: File[]) => void;
 }
 
 export function useSenderSession(): UseSender {
   const sessionRef = useRef<SenderSession | null>(null);
-  const [state, setState] = useState<SenderState>('idle');
-  const [progress, setProgress] = useState<TransferProgress | null>(null);
+  const [phase, setPhase] = useState<SenderPhase>('idle');
   const [room, setRoom] = useState<SenderRoomInfo | null>(null);
+  const [receivers, setReceivers] = useState<ReceiverStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,20 +33,22 @@ export function useSenderSession(): UseSender {
 
   const start = useCallback((files: File[]) => {
     if (sessionRef.current || files.length === 0) return;
-    const session = new SenderSession(SIGNALING_URL, window.location.origin);
+    // `?relay=1` forces the server relay, to test or work around a bad network.
+    const forceRelay = new URLSearchParams(window.location.search).get('relay') === '1';
+    const session = new SenderSession(SIGNALING_URL, window.location.origin, { forceRelay });
     sessionRef.current = session;
-    session.on('state', setState);
-    session.on('progress', setProgress);
+    session.on('phase', setPhase);
     session.on('room', setRoom);
+    session.on('receivers', setReceivers);
     session.on('error', (msg) => {
       setError(msg);
-      setState('error');
+      setPhase('error');
     });
     void session.start(files).catch((e: Error) => {
-      setError(e.message);
-      setState('error');
+      setError(e.message || "Couldn't reach the Beam server.");
+      setPhase('error');
     });
   }, []);
 
-  return { state, progress, room, error, start };
+  return { phase, room, receivers, error, start };
 }

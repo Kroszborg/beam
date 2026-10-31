@@ -3,26 +3,30 @@ import { DEV_INFO } from '@/config/dev';
 
 export function PrivacyPage() {
   return (
-    <LegalLayout title="Privacy Policy" updated="June 2026">
+    <LegalLayout title="Privacy Policy" updated="October 2026">
       <p className="text-[0.95rem] leading-relaxed text-[var(--color-ink-soft)]">
         Beam is built to collect as little as technically possible. There are no accounts, no
         tracking, and your files are never uploaded to us. This policy explains the few things the
         service does touch.
       </p>
 
-      <LegalSection title="Your files never reach our servers">
+      <LegalSection title="We can't read your files">
         <p>
           Files are encrypted in your browser and sent directly to the recipient over an encrypted
-          peer-to-peer (WebRTC) connection. Beam's servers never receive, store, or have access to
-          your files or the encryption keys. The key lives only in the share link's URL fragment,
-          which browsers never transmit to a server.
+          peer-to-peer (WebRTC) connection. File names and sizes are encrypted too. The key lives
+          only in the share link's URL fragment, which browsers never transmit to a server.
+        </p>
+        <p>
+          When two networks won't allow a direct connection, the already-encrypted stream is passed
+          through our server so the transfer can still happen. We can't decrypt it, and nothing is
+          stored — the data only passes through on its way to the recipient.
         </p>
       </LegalSection>
 
       <LegalSection title="What the signaling server handles">
         <p>
           To introduce two devices, our signaling server temporarily holds an ephemeral “room”
-          identifier and basic presence state in memory (Redis), which expires automatically. It
+          identifier and basic presence state in memory, which expires automatically. It
           does not store file contents, keys, or persistent personal data.
         </p>
         <p>
@@ -35,9 +39,21 @@ export function PrivacyPage() {
 
       <LegalSection title="Storage on your own device">
         <p>
-          During a transfer, the receiving device may temporarily store encrypted/decrypted chunks
-          in your browser's local IndexedDB so an interrupted transfer can resume. This data stays on
-          your device and is cleared once the transfer completes.
+          Received files are written straight to the location you choose on your device. Only in
+          browsers that can't stream downloads (such as some private windows) are files held in the
+          browser's local storage until you save them. Either way the data stays on your device.
+        </p>
+        <p>
+          If you install Beam and share files to it from another app, those files are parked in the
+          browser's local storage only until the send page picks them up, then deleted.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Who can receive your files">
+        <p>
+          Anyone who has the share link can receive the files while your tab is open — several
+          people can use the same link. Share it only with the people you intend, and close the tab
+          to stop sharing. Links stop working once you close the tab or the room expires.
         </p>
       </LegalSection>
 
@@ -45,13 +61,6 @@ export function PrivacyPage() {
         <p>
           Beam does not use advertising, third-party analytics, or tracking cookies. There is nothing
           to profile and nothing to sell.
-        </p>
-      </LegalSection>
-
-      <LegalSection title="Donations">
-        <p>
-          Crypto donations are entirely optional. Blockchain addresses and transactions are public by
-          nature; Beam does not collect identity information for donations.
         </p>
       </LegalSection>
 

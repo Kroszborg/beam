@@ -10,27 +10,41 @@ import {
   KeyRound,
   FileCheck2,
   RotateCcw,
+  Infinity as InfinityIcon,
+  FolderTree,
+  Users,
+  HardDriveDownload,
+  Radio,
+  Smartphone,
   type LucideIcon,
 } from 'lucide-react';
 import { PageShell } from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Reveal } from '@/components/Reveal';
-import { SupportSection } from '@/components/landing/SupportSection';
 import { AboutDev } from '@/components/landing/AboutDev';
 import { Faq } from '@/components/landing/Faq';
 
 const HOW: { n: string; title: string; body: string; icon: LucideIcon }[] = [
   { n: '01', title: 'Encrypt locally', body: 'Files are encrypted in your browser before a single byte ever leaves your device.', icon: LockKeyhole },
-  { n: '02', title: 'Connect directly', body: 'A peer-to-peer channel opens between both devices. The server only introduces them.', icon: Waypoints },
-  { n: '03', title: 'Verify on arrival', body: 'Each chunk is checked against a Merkle root, so what lands is exactly what was sent.', icon: BadgeCheck },
+  { n: '02', title: 'Connect directly', body: 'A peer-to-peer channel opens between both devices. The server only introduces them — and relays ciphertext only if a direct path is blocked.', icon: Waypoints },
+  { n: '03', title: 'Verify on arrival', body: 'Each chunk is authenticated as it arrives, so what lands on disk is exactly what was sent.', icon: BadgeCheck },
 ];
 
 const SECURITY: { k: string; v: string; icon: LucideIcon }[] = [
-  { k: 'No uploads', v: 'Files travel device to device. Nothing to leak, subpoena, or sell.', icon: ServerOff },
+  { k: 'No uploads', v: 'Files travel device to device and are never stored. Even the fallback relay only sees ciphertext.', icon: ServerOff },
   { k: 'Keys stay local', v: 'The key lives in the link fragment. Servers never see it.', icon: KeyRound },
-  { k: 'Tamper-evident', v: 'Per-chunk hashing surfaces any corruption or tampering instantly.', icon: FileCheck2 },
+  { k: 'Tamper-evident', v: 'Every chunk is authenticated; corruption or tampering is caught instantly.', icon: FileCheck2 },
   { k: 'Resumable', v: 'Drop the connection and it continues from the gap, never from zero.', icon: RotateCcw },
+];
+
+const FEATURES: { k: string; v: string; icon: LucideIcon }[] = [
+  { k: 'Any size', v: 'No file limit. Chunks are written to disk as they arrive, so a 50 GB file uses the same memory as a 5 MB one.', icon: InfinityIcon },
+  { k: 'Instant link', v: 'No upload, no hashing pass. The link is ready the moment you pick files, and the download starts right away.', icon: HardDriveDownload },
+  { k: 'Folders & picking', v: 'Drop a whole folder. The receiver sees the list and takes only what they need — as a folder or one zip.', icon: FolderTree },
+  { k: 'Many receivers', v: 'Share one link with several people. Each gets their own encrypted stream and progress.', icon: Users },
+  { k: 'Works on strict networks', v: 'If a direct connection can’t open, Beam falls back to an end-to-end encrypted relay automatically.', icon: Radio },
+  { k: 'Phone friendly', v: 'Scan the QR code to receive. Install Beam and send straight from the share sheet.', icon: Smartphone },
 ];
 
 const ease = [0.22, 1, 0.36, 1] as const;
@@ -78,8 +92,8 @@ export function HomePage() {
             transition={{ duration: 0.8, ease, delay: 0.26 }}
             className="mx-auto mt-8 max-w-lg text-base font-normal leading-relaxed text-[var(--color-ink-soft)] sm:text-lg"
           >
-            Encrypted in your browser. Sent straight to the other device. No cloud,
-            no accounts.
+            Encrypted in your browser. Streamed straight to the other device — any
+            size, no cloud, no accounts.
           </motion.p>
 
           <motion.div
@@ -131,6 +145,24 @@ export function HomePage() {
         </div>
       </Section>
 
+      {/* ── Features ──────────────────────────────────────────── */}
+      <Section id="features">
+        <SectionHead eyebrow="Features" title="Big files, no fuss." />
+        <div className="mx-auto mt-14 grid max-w-5xl gap-x-12 gap-y-10 text-left sm:grid-cols-2 lg:grid-cols-3">
+          {FEATURES.map((item, i) => (
+            <Reveal key={item.k} delay={i * 0.05}>
+              <div className="h-full border-t border-white/[0.08] pt-5">
+                <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-[var(--color-ink)]">
+                  <item.icon className="h-5 w-5" strokeWidth={1.5} />
+                </span>
+                <h3 className="mt-4 text-lg">{item.k}</h3>
+                <p className="mt-2 text-[0.95rem] leading-relaxed text-[var(--color-ink-soft)]">{item.v}</p>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+      </Section>
+
       {/* ── Security ──────────────────────────────────────────── */}
       <Section id="security">
         <SectionHead eyebrow="Security" title="We couldn't read your files if we tried." />
@@ -154,7 +186,6 @@ export function HomePage() {
       </Section>
 
       <Faq />
-      <SupportSection />
       <AboutDev />
 
       {/* ── Closing ──────────────────────────────────────────── */}

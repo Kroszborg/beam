@@ -4,10 +4,40 @@ import { formatBytes, formatSpeed, formatDuration } from '@/lib/utils';
 
 /**
  * The live transfer dashboard: a big percentage + animated bar, plus the
- * detail line (bytes, speed, ETA, current chunk) the spec calls for.
+ * detail line (bytes, speed, ETA). `compact` renders a single-line variant for
+ * lists (e.g. one row per receiver).
  */
-export function ProgressView({ progress }: { progress: TransferProgress }) {
-  const pct = Math.round(progress.percent * 100);
+export function ProgressView({
+  progress,
+  compact = false,
+}: {
+  progress: TransferProgress;
+  compact?: boolean;
+}) {
+  const pct = Math.floor(progress.percent * 100);
+
+  if (compact) {
+    return (
+      <div className="space-y-2">
+        <div className="h-1 overflow-hidden rounded-full bg-[var(--color-paper-2)]">
+          <motion.div
+            className="h-full rounded-full bg-[var(--color-signal)]"
+            initial={{ width: 0 }}
+            animate={{ width: `${pct}%` }}
+            transition={{ ease: 'easeOut', duration: 0.3 }}
+          />
+        </div>
+        <div className="flex justify-between font-mono text-xs tabular-nums text-[var(--color-ink-soft)]">
+          <span>
+            {pct}% · {formatBytes(progress.bytesTransferred)} / {formatBytes(progress.totalBytes)}
+          </span>
+          <span>
+            {formatSpeed(progress.speedBps)} · {formatDuration(progress.etaSeconds)}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -30,13 +60,9 @@ export function ProgressView({ progress }: { progress: TransferProgress }) {
         />
       </div>
 
-      <div className="grid grid-cols-3 divide-x divide-[var(--color-line)] border-y border-[var(--color-line)]">
+      <div className="grid grid-cols-2 divide-x divide-[var(--color-line)] border-y border-[var(--color-line)]">
         <Stat label="Speed" value={formatSpeed(progress.speedBps)} />
         <Stat label="Time left" value={formatDuration(progress.etaSeconds)} />
-        <Stat
-          label="Chunk"
-          value={`${Math.min(progress.chunksTransferred + 1, progress.totalChunks)}/${progress.totalChunks}`}
-        />
       </div>
     </div>
   );

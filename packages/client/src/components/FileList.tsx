@@ -1,5 +1,6 @@
 import { File as FileIcon, X } from 'lucide-react';
 import { formatBytes } from '@/lib/utils';
+import { relativePath } from '@/lib/files';
 
 /** Compact list of selected files with sizes and a running total. */
 export function FileList({
@@ -23,7 +24,7 @@ export function FileList({
         {files.map((file, i) => (
           <li key={`${file.name}-${i}`} className="flex items-center gap-3 py-2.5">
             <FileIcon className="h-4 w-4 shrink-0 text-[var(--color-ink-faint)]" />
-            <span className="flex-1 truncate text-sm text-[var(--color-ink)]">{file.name}</span>
+            <span className="flex-1 truncate text-sm text-[var(--color-ink)]">{relativePath(file)}</span>
             <span className="shrink-0 font-mono text-xs text-[var(--color-ink-faint)]">
               {formatBytes(file.size)}
             </span>
