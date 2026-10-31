@@ -38,6 +38,8 @@ ENV NODE_ENV=production \
     PORT=8787 \
     STATIC_DIR=/app/packages/client/dist
 EXPOSE 8787
+# Writable home for optional encrypted copies (STORE_ENABLED / STORE_DIR).
+RUN mkdir -p /data/store && chown -R node:node /data
 USER node
 HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://127.0.0.1:8787/health || exit 1
 # tsx is resolved from the server package, so run from there.

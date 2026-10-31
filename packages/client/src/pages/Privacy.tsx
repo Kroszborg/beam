@@ -23,6 +23,24 @@ export function PrivacyPage() {
         </p>
       </LegalSection>
 
+      <LegalSection title="Optional encrypted copies">
+        <p>
+          If you choose “Keep an encrypted copy”, your browser uploads the encrypted chunks and the
+          encrypted file list to our server so people can download after you close the tab. We store
+          only that ciphertext — we can’t decrypt it — together with its size, an upload token, the
+          time it expires and the uploading IP address (used for abuse limits). Copies are deleted
+          automatically after 24 hours, or when you press “Delete copy”.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Short codes">
+        <p>
+          When you use a short code like 42-tiger-ocean, the server only learns its number, which it
+          uses to find your transfer. The words are checked directly between the two browsers with a
+          password-authenticated key exchange, so they never reach us.
+        </p>
+      </LegalSection>
+
       <LegalSection title="What the signaling server handles">
         <p>
           To introduce two devices, our signaling server temporarily holds an ephemeral “room”

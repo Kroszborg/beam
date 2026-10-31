@@ -112,9 +112,11 @@ function ShareAndProgress({
                 <ShortCode sender={sender} />
                 <ServerCopy sender={sender} totalBytes={total} chunks={files.reduce((n, f) => n + Math.max(1, Math.ceil(f.size / (1024 * 1024))), 0)} />
                 <p className="text-xs leading-relaxed text-[var(--color-ink-faint)]">
-                  {files.length} file{files.length === 1 ? '' : 's'} · {formatBytes(total)}. Keep this
-                  tab open while people download — several can use the link at once. The key lives
-                  only in the link: anyone with it can receive the files.
+                  {files.length} file{files.length === 1 ? '' : 's'} · {formatBytes(total)}.{' '}
+                  {sender.copy?.state === 'ready'
+                    ? 'The link works from the server copy now — several people can use it at once.'
+                    : 'Keep this tab open while people download — several can use the link at once.'}{' '}
+                  The key lives only in the link: anyone with it can receive the files.
                 </p>
               </div>
 

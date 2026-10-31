@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 const FAQS = [
   {
     q: 'Are my files really never uploaded?',
-    a: 'Correct. Files are encrypted in your browser and streamed directly to the receiver over a peer-to-peer WebRTC connection — the receiver downloads while you send, nothing is stored anywhere in between. If two networks block direct connections, the encrypted stream is passed through Beam’s server instead; it still can’t read it and doesn’t keep it.',
+    a: 'By default, yes. Files are encrypted in your browser and streamed directly to the receiver over a peer-to-peer WebRTC connection — the receiver downloads while you send. If two networks block direct connections, the encrypted stream passes through Beam’s server, which can’t read it and doesn’t keep it. The only exception is one you choose: “Keep an encrypted copy”, below.',
   },
   {
     q: 'What stops Beam from reading my files?',
@@ -25,12 +25,24 @@ const FAQS = [
     a: 'Yes to both. Drop a folder and the receiver gets it as a folder (Chrome, Edge) or a single .zip (other browsers), and can untick files they don’t need. Several people can open the same link at once; each gets their own connection.',
   },
   {
+    q: 'Can people download after I close the tab?',
+    a: 'Only if you choose “Keep an encrypted copy”. Beam then uploads the same encrypted chunks to its server and keeps them for 24 hours (or until you delete them), so the link keeps working without you. Receivers can even start before your upload finishes. The server still never has the key.',
+  },
+  {
+    q: 'What’s a short code?',
+    a: 'Instead of a long link, you can show a code like 42-tiger-ocean; the receiver types it at /receive. Your browsers check it directly with a PAKE (a password-authenticated key exchange), so the server never learns it and nobody can guess it offline. After three wrong tries it stops working.',
+  },
+  {
+    q: 'Can I watch a video before it’s finished?',
+    a: 'Yes. Videos and audio play while they’re still arriving (as long as the beginning is there — most phone and web videos are fine), and images, text and PDFs open as soon as each file is complete.',
+  },
+  {
     q: 'Do I need an account?',
     a: 'No. There’s no signup, no login, and no profile. Drop a file, share the link or QR code, and transfer.',
   },
   {
     q: 'Does it work on phones?',
-    a: 'Yes. Scan the QR code on the share screen and the receiving device auto-joins the room and starts the encrypted handshake.',
+    a: 'Yes. Scan the QR code on the share screen, or type the short code at /receive. Installed as an app on Android, Beam also appears in the share menu.',
   },
 ];
 

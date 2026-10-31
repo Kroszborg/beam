@@ -48,7 +48,7 @@ export function PageShell({ children, narrow = false }: { children: ReactNode; n
           <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
             <Brand />
             <p className="max-w-xs text-sm leading-relaxed text-[var(--color-ink-faint)]">
-              Encrypted, peer-to-peer file transfer. No uploads. No accounts.
+              Encrypted, peer-to-peer file transfer. No accounts.
             </p>
           </div>
           <hr className="rule my-7" />

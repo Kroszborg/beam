@@ -149,6 +149,14 @@ TURN_CREDENTIAL=
 # Encrypted relay fallback through this server (costs bandwidth when used):
 RELAY_ENABLED=true
 MAX_RECEIVERS=8
+# Optional encrypted copies (store-and-forward). Needs the /store nginx block
+# in §6 and a directory www-data can write:
+#   sudo mkdir -p /var/lib/beam/store && sudo chown www-data:www-data /var/lib/beam/store
+STORE_ENABLED=false
+STORE_DIR=/var/lib/beam/store
+STORE_MAX_TRANSFER_MB=2048
+STORE_MAX_TOTAL_MB=10240
+STORE_TTL_HOURS=24
 NODE_ENV=production
 ```
 
@@ -233,6 +241,18 @@ server {
     location ~ ^/(ice|health)$ {
         proxy_pass http://127.0.0.1:8787;
         proxy_set_header Host $host;
+    }
+
+    # Optional encrypted copies (STORE_ENABLED=true). Chunks are 1 MiB + a
+    # tag, so allow a bit more than nginx's 1 MB default; reads long-poll.
+    location /store {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        client_max_body_size 2m;
+        proxy_read_timeout 60s;
+        proxy_request_buffering off;
+        proxy_buffering off;
     }
 }
 ```

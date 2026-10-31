@@ -16,6 +16,9 @@ import {
   HardDriveDownload,
   Radio,
   Smartphone,
+  KeySquare,
+  CloudUpload,
+  MonitorPlay,
   type LucideIcon,
 } from 'lucide-react';
 import { PageShell } from '@/components/PageShell';
@@ -32,7 +35,7 @@ const HOW: { n: string; title: string; body: string; icon: LucideIcon }[] = [
 ];
 
 const SECURITY: { k: string; v: string; icon: LucideIcon }[] = [
-  { k: 'No uploads', v: 'Files travel device to device and are never stored. Even the fallback relay only sees ciphertext.', icon: ServerOff },
+  { k: 'No uploads', v: 'Files travel device to device. The relay and the optional server copy only ever hold ciphertext.', icon: ServerOff },
   { k: 'Keys stay local', v: 'The key lives in the link fragment. Servers never see it.', icon: KeyRound },
   { k: 'Tamper-evident', v: 'Every chunk is authenticated; corruption or tampering is caught instantly.', icon: FileCheck2 },
   { k: 'Resumable', v: 'Drop the connection and it continues from the gap, never from zero.', icon: RotateCcw },
@@ -45,6 +48,9 @@ const FEATURES: { k: string; v: string; icon: LucideIcon }[] = [
   { k: 'Many receivers', v: 'Share one link with several people. Each gets their own encrypted stream and progress.', icon: Users },
   { k: 'Works on strict networks', v: 'If a direct connection can’t open, Beam falls back to an end-to-end encrypted relay automatically.', icon: Radio },
   { k: 'Phone friendly', v: 'Scan the QR code to receive. Install Beam and send straight from the share sheet.', icon: Smartphone },
+  { k: 'Short codes', v: 'Read out 42-tiger-ocean instead of a link. Checked by a PAKE between the browsers, so the server never learns it.', icon: KeySquare },
+  { k: 'Send now, they download later', v: 'Optionally keep an encrypted copy for 24 hours, so the link works after you close the tab.', icon: CloudUpload },
+  { k: 'Preview while receiving', v: 'Watch a video or look at photos before the transfer has finished.', icon: MonitorPlay },
 ];
 
 const ease = [0.22, 1, 0.36, 1] as const;

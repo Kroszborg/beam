@@ -14,7 +14,9 @@ export function TermsPage() {
           Beam helps a sender and one or more receivers establish an end-to-end encrypted connection
           to transfer files — directly between devices where possible, or through an encrypted relay
           when networks block a direct path. The sender must keep the page open for the transfer to
-          happen. Beam does not store your files and cannot recover or resend them.
+          happen — unless you choose to keep an encrypted copy, which the server holds for up to 24
+          hours. Beam cannot decrypt copies, and cannot recover or resend files once a transfer or copy
+          is gone.
         </p>
       </LegalSection>
 
@@ -24,7 +26,9 @@ export function TermsPage() {
           to share them. Do not use Beam to transfer unlawful material or to infringe anyone's
           rights. Do not attempt to disrupt, overload, or abuse the signaling or relay service; we
           may rate-limit or block traffic that does. You are responsible for who you give a share
-          link to — anyone holding it can receive the files.
+          link or short code to — anyone holding it can receive the files. Encrypted copies are
+          limited in size and number, and may be removed early if storage runs low or they are used
+          to abuse the service.
         </p>
       </LegalSection>
 

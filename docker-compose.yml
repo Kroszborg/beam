@@ -18,6 +18,15 @@ services:
       # TURN_CREDENTIAL: change-me
       # RELAY_ENABLED: "false"
       # MAX_RECEIVERS: "8"
+      # Optional encrypted copies so links work after the sender leaves:
+      # STORE_ENABLED: "true"
+      # STORE_MAX_TRANSFER_MB: "2048"
+      # STORE_MAX_TOTAL_MB: "10240"
+      STORE_DIR: /data/store
+      # Caddy runs on another container: trust the Docker network for client IPs.
+      TRUST_PROXY: "true"
+    volumes:
+      - beam-data:/data
 
   caddy:
     image: caddy:2-alpine
@@ -34,3 +43,4 @@ services:
 
 volumes:
   caddy-data:
+  beam-data:
